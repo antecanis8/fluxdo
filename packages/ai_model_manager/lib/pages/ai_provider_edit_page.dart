@@ -161,6 +161,7 @@ class _AiProviderEditPageState extends ConsumerState<AiProviderEditPage> {
     }
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -173,24 +174,30 @@ class _AiProviderEditPageState extends ConsumerState<AiProviderEditPage> {
                     fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ),
-            ...List.generate(_models.length, (i) {
-              final m = _models[i];
-              return ListTile(
-                leading: ModelIcon(
-                  providerName: widget.provider?.name ?? '',
-                  modelName: m.name ?? m.id,
-                  size: 24,
-                ),
-                title: Text(m.name ?? m.id),
-                subtitle: m.name != null
-                    ? Text(m.id, style: const TextStyle(fontSize: 12))
-                    : null,
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _testModel(m.id);
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _models.length,
+                itemBuilder: (ctx, i) {
+                  final m = _models[i];
+                  return ListTile(
+                    leading: ModelIcon(
+                      providerName: widget.provider?.name ?? '',
+                      modelName: m.name ?? m.id,
+                      size: 24,
+                    ),
+                    title: Text(m.name ?? m.id),
+                    subtitle: m.name != null
+                        ? Text(m.id, style: const TextStyle(fontSize: 12))
+                        : null,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _testModel(m.id);
+                    },
+                  );
                 },
-              );
-            }),
+              ),
+            ),
             const SizedBox(height: 8),
           ],
         ),

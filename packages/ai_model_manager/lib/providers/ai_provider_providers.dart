@@ -96,7 +96,8 @@ final defaultImageAiModelKeyProvider = StateProvider<String?>((ref) {
 /// [isImageMode]：true 写入图像默认 key，false 写入文本默认 key，
 /// null 仅写入通用 key（向后兼容旧调用）。
 ///
-/// 通用 key 始终也会被写入，让旧 [defaultAiModelKeyProvider] 仍能取到。
+/// 旧通用 key 只跟随文本默认模型。图像默认模型不能写入通用 key，
+/// 否则 AI 助手首次打开会被误判为生图模式。
 Future<void> setDefaultAiModel(
   WidgetRef ref,
   String providerId,
@@ -105,14 +106,21 @@ Future<void> setDefaultAiModel(
 }) async {
   final prefs = ref.read(aiSharedPreferencesProvider);
   final key = '$providerId:$modelId';
-  await prefs.setString(_kDefaultModelKey, key);
-  ref.read(defaultAiModelKeyProvider.notifier).state = key;
   if (isImageMode == true) {
     await prefs.setString(_kDefaultImageModelKey, key);
     ref.read(defaultImageAiModelKeyProvider.notifier).state = key;
+    if (prefs.getString(_kDefaultModelKey) == key) {
+      await prefs.remove(_kDefaultModelKey);
+      ref.read(defaultAiModelKeyProvider.notifier).state = null;
+    }
   } else if (isImageMode == false) {
+    await prefs.setString(_kDefaultModelKey, key);
+    ref.read(defaultAiModelKeyProvider.notifier).state = key;
     await prefs.setString(_kDefaultTextModelKey, key);
     ref.read(defaultTextAiModelKeyProvider.notifier).state = key;
+  } else {
+    await prefs.setString(_kDefaultModelKey, key);
+    ref.read(defaultAiModelKeyProvider.notifier).state = key;
   }
 }
 
@@ -126,13 +134,23 @@ Future<void> clearDefaultAiModel(
 }) async {
   final prefs = ref.read(aiSharedPreferencesProvider);
   if (isImageMode == true) {
+    final imageKey = prefs.getString(_kDefaultImageModelKey);
     await prefs.remove(_kDefaultImageModelKey);
     ref.read(defaultImageAiModelKeyProvider.notifier).state = null;
+    if (imageKey != null && prefs.getString(_kDefaultModelKey) == imageKey) {
+      await prefs.remove(_kDefaultModelKey);
+      ref.read(defaultAiModelKeyProvider.notifier).state = null;
+    }
     return;
   }
   if (isImageMode == false) {
+    final textKey = prefs.getString(_kDefaultTextModelKey);
     await prefs.remove(_kDefaultTextModelKey);
     ref.read(defaultTextAiModelKeyProvider.notifier).state = null;
+    if (textKey != null && prefs.getString(_kDefaultModelKey) == textKey) {
+      await prefs.remove(_kDefaultModelKey);
+      ref.read(defaultAiModelKeyProvider.notifier).state = null;
+    }
     return;
   }
   await prefs.remove(_kDefaultModelKey);
