@@ -332,6 +332,25 @@ final aiChatServiceProvider = Provider((ref) {
   return AiChatService(enablePartialImages: enablePartialImages);
 });
 
+/// 单条 chat 请求用的 http.Client 工厂。
+///
+/// sendMessage 每次发请求时调一次 factory 产出可独立 close 的 client：
+/// - 开「跟随应用网络配置」+ 主应用注入了 adapterFactory：返回
+///   [DioBackedHttpClient]（每次包一份新 adapter，close 不影响其它请求）
+/// - 否则：返回原生 [http.Client]
+///
+/// 直接 `http.Client()` 会绕过 [AiChatService.bridgedClient]，
+/// 让走默认 baseUrl 的 provider（如 Gemini 必经 generativelanguage.googleapis.com）
+/// 看不到应用代理设置。
+final aiRequestClientFactoryProvider = Provider<http.Client Function()>((ref) {
+  final useAppNetwork = ref.watch(aiUseAppNetworkProvider);
+  final adapterFactory = ref.watch(aiDioAdapterFactoryProvider);
+  if (useAppNetwork && adapterFactory != null) {
+    return () => DioBackedHttpClient(adapterFactory());
+  }
+  return http.Client.new;
+});
+
 /// 标题生成模型 key（providerId:modelId）
 final aiTitleModelKeyProvider = StateProvider<String?>((ref) {
   final storageService = ref.watch(aiChatStorageServiceProvider);
@@ -465,12 +484,14 @@ final topicAiChatProvider = StateNotifierProvider.autoDispose
     final titleModel = ref.read(aiTitleModelProvider);
     final imagePromptOptimizerModel =
         ref.read(aiImagePromptOptimizerModelProvider);
+    final requestClientFactory = ref.watch(aiRequestClientFactoryProvider);
     final notifier = TopicAiChatNotifier(
       chatService: chatService,
       storageService: storageService,
       topicId: topicId,
       titleModel: titleModel,
       imagePromptOptimizerModel: imagePromptOptimizerModel,
+      requestClientFactory: requestClientFactory,
     );
     ref.onDispose(() {
       notifier.saveBeforeDispose();
@@ -488,6 +509,11 @@ class TopicAiChatNotifier extends StateNotifier<TopicAiChatState> {
   final ({AiProvider provider, AiModel model})? titleModel;
   final ({AiProvider provider, AiModel model})? imagePromptOptimizerModel;
 
+  /// 每条 chat 请求独立创建的可 close http.Client。
+  /// 默认是原生 [http.Client]；当主应用开启「跟随应用网络配置」时由
+  /// [aiRequestClientFactoryProvider] 注入为 [DioBackedHttpClient]。
+  final http.Client Function() requestClientFactory;
+
   StreamSubscription<AiChatChunk>? _streamSubscription;
   http.Client? _requestClient;
   bool _cancelled = false;
@@ -503,7 +529,9 @@ class TopicAiChatNotifier extends StateNotifier<TopicAiChatState> {
     required this.topicId,
     this.titleModel,
     this.imagePromptOptimizerModel,
-  }) : super(const TopicAiChatState()) {
+    http.Client Function()? requestClientFactory,
+  })  : requestClientFactory = requestClientFactory ?? http.Client.new,
+        super(const TopicAiChatState()) {
     _loadFromStorage();
   }
 
@@ -734,8 +762,10 @@ class TopicAiChatNotifier extends StateNotifier<TopicAiChatState> {
         }
       }
 
-      // 为本次请求创建独立 HTTP client，stop 时 close 可立即断开连接
-      _requestClient = http.Client();
+      // 为本次请求创建独立 HTTP client，stop 时 close 可立即断开连接。
+      // factory 在开「跟随应用网络配置」时会包装应用网络栈，
+      // 避免直接 http.Client() 绕过代理。
+      _requestClient = requestClientFactory();
       final stream = chatService.sendChatStream(
         provider: selectedModel.provider,
         model: selectedModel.model.id,
