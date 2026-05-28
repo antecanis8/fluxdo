@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ai_model_manager/ai_model_manager.dart';
 
@@ -228,6 +229,31 @@ List<SettingsGroup> buildAppearanceGroups(BuildContext context) {
       ],
     ),
 
+    // ── 屏幕帧率（仅 Android）──────────────────────────────────────
+    SettingsGroup(
+      title: l10n.appearance_displayMode,
+      icon: Icons.monitor_outlined,
+      items: [
+        PlatformConditionalModel(
+          condition: () => !kIsWeb && Platform.isAndroid,
+          inner: ActionModel(
+            id: 'displayMode',
+            title: l10n.appearance_displayMode,
+            icon: Icons.monitor_heart_outlined,
+            getDynamicSubtitle: (ref) {
+              final rate = ref
+                  .watch(preferencesProvider)
+                  .displayModeRefreshRate;
+              return rate == 0
+                  ? context.l10n.appearance_displayModeAuto
+                  : '${rate}Hz';
+            },
+            onTap: (context, ref) => _showDisplayModeSheet(context, ref),
+          ),
+        ),
+      ],
+    ),
+
     // ── 对话框模糊 ──────────────────────────────────────────────────
     SettingsGroup(
       title: l10n.appearance_dialogBlur,
@@ -294,6 +320,173 @@ void _showLanguagePicker(
       );
     },
   );
+}
+
+// ── 屏幕帧率选择器（仅 Android）────────────────────────────────
+
+Future<void> _showDisplayModeSheet(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  await showAppBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheetContext) => const _DisplayModeSheetBody(),
+  );
+}
+
+class _DisplayModeSheetBody extends ConsumerStatefulWidget {
+  const _DisplayModeSheetBody();
+
+  @override
+  ConsumerState<_DisplayModeSheetBody> createState() =>
+      _DisplayModeSheetBodyState();
+}
+
+class _DisplayModeSheetBodyState
+    extends ConsumerState<_DisplayModeSheetBody> {
+  late Future<_DisplayModeData> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  Future<_DisplayModeData> _load() async {
+    final modes = await FlutterDisplayMode.supported;
+    final active = await FlutterDisplayMode.active;
+    return _DisplayModeData(modes: modes, active: active);
+  }
+
+  Future<void> _apply(int rate, List<DisplayMode> modes, DisplayMode active) async {
+    await ref
+        .read(preferencesProvider.notifier)
+        .setDisplayModeRefreshRate(rate);
+    try {
+      if (rate == 0) {
+        await FlutterDisplayMode.setPreferredMode(DisplayMode.auto);
+      } else {
+        final matches = modes
+            .where((m) => m.refreshRate.round() == rate)
+            .toList();
+        if (matches.isNotEmpty) {
+          final picked = matches.firstWhere(
+            (m) => m.width == active.width && m.height == active.height,
+            orElse: () => matches.first,
+          );
+          await FlutterDisplayMode.setPreferredMode(picked);
+        }
+      }
+    } catch (e) {
+      debugPrint('[DisplayMode] 切换刷新率失败: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: FutureBuilder<_DisplayModeData>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const SizedBox(
+              height: 200,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snapshot.hasError || snapshot.data == null) {
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                snapshot.error?.toString() ?? 'unknown error',
+                style: theme.textTheme.bodyMedium,
+              ),
+            );
+          }
+
+          final data = snapshot.data!;
+          final currentRate =
+              ref.watch(preferencesProvider).displayModeRefreshRate;
+
+          // 去重 + 高到低排序
+          final uniqueRates = <int>{};
+          for (final m in data.modes) {
+            uniqueRates.add(m.refreshRate.round());
+          }
+          final sortedRates = uniqueRates.toList()
+            ..sort((a, b) => b.compareTo(a));
+
+          final activeRate = data.active.refreshRate.round();
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                child: Text(
+                  l10n.appearance_displayMode,
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.5,
+                ),
+                child: SingleChildScrollView(
+                  child: RadioGroup<int>(
+                    groupValue: currentRate,
+                    onChanged: (value) async {
+                      if (value == null) return;
+                      await _apply(value, data.modes, data.active);
+                    },
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        RadioListTile<int>(
+                          value: 0,
+                          title: Text(l10n.appearance_displayModeAuto),
+                        ),
+                        for (final rate in sortedRates)
+                          RadioListTile<int>(
+                            value: rate,
+                            title: Text(
+                              rate == activeRate
+                                  ? '${rate}Hz  ·  [${l10n.appearance_languageSystem}]'
+                                  : '${rate}Hz',
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: Text(
+                  l10n.appearance_displayModeRestartHint,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DisplayModeData {
+  final List<DisplayMode> modes;
+  final DisplayMode active;
+
+  _DisplayModeData({required this.modes, required this.active});
 }
 
 String _localeLabel(AppLocalizations l10n, Locale? locale) {

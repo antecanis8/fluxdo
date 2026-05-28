@@ -21,6 +21,7 @@ import 'providers/app_state_refresher.dart';
 import 'services/highlighter_service.dart';
 import 'widgets/common/notification_icon_button.dart';
 import 'widgets/common/clipboard_topic_link_snack_content.dart';
+import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'services/network/cookie/android_cdp_feature.dart';
 import 'services/network/cookie/csrf_token_service.dart';
@@ -90,6 +91,36 @@ import 'utils/platform_utils.dart';
 Future<bool> _initRhttp() async {
   await rhttp.Rhttp.init();
   return true;
+}
+
+/// 应用 Android 屏幕刷新率偏好。
+/// 偏好值 0 表示跟随系统（auto），非 0 则按目标刷新率从 supported 中选最匹配的 mode。
+/// 失败不阻塞启动。
+Future<void> _applyAndroidDisplayMode(SharedPreferences prefs) async {
+  final targetRate = prefs.getInt('pref_display_mode_refresh_rate') ?? 0;
+  try {
+    if (targetRate == 0) {
+      await FlutterDisplayMode.setPreferredMode(DisplayMode.auto);
+      return;
+    }
+    final modes = await FlutterDisplayMode.supported;
+    final active = await FlutterDisplayMode.active;
+    // 优先选分辨率匹配 active 的相同刷新率 mode；否则退化为任意分辨率
+    final matches = modes
+        .where((m) => m.refreshRate.round() == targetRate)
+        .toList();
+    if (matches.isEmpty) {
+      await FlutterDisplayMode.setPreferredMode(DisplayMode.auto);
+      return;
+    }
+    final picked = matches.firstWhere(
+      (m) => m.width == active.width && m.height == active.height,
+      orElse: () => matches.first,
+    );
+    await FlutterDisplayMode.setPreferredMode(picked);
+  } catch (e) {
+    debugPrint('[Main] 应用屏幕刷新率失败: $e');
+  }
 }
 
 Future<void> main() async {
@@ -235,6 +266,11 @@ Future<void> main() async {
         DeviceOrientation.portraitDown,
       ]);
     }
+  }
+
+  // 应用 Android 屏幕刷新率偏好（不阻塞启动）
+  if (Platform.isAndroid) {
+    unawaited(_applyAndroidDisplayMode(prefs));
   }
 
   // 提前触发预加载数据请求，与 runApp 并行执行

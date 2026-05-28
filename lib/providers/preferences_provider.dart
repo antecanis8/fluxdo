@@ -136,6 +136,9 @@ class AppPreferences {
   /// 底栏入口 id 列表（顺序即显示顺序）
   final List<String> bottomNavIds;
 
+  /// Android 屏幕刷新率偏好（0 = auto/跟随系统，其它为目标刷新率，如 60 / 90 / 120）
+  final int displayModeRefreshRate;
+
   AppPreferences({
     required this.autoPanguSpacing,
     required this.displayPanguSpacing,
@@ -169,6 +172,7 @@ class AppPreferences {
     required this.bottomSingleTapAction,
     required this.bottomDoubleTapAction,
     required this.bottomNavIds,
+    this.displayModeRefreshRate = 0,
   });
 
   AppPreferences copyWith({
@@ -204,6 +208,7 @@ class AppPreferences {
     NavTapAction? bottomSingleTapAction,
     NavTapAction? bottomDoubleTapAction,
     List<String>? bottomNavIds,
+    int? displayModeRefreshRate,
   }) {
     return AppPreferences(
       autoPanguSpacing: autoPanguSpacing ?? this.autoPanguSpacing,
@@ -244,6 +249,8 @@ class AppPreferences {
       bottomDoubleTapAction:
           bottomDoubleTapAction ?? this.bottomDoubleTapAction,
       bottomNavIds: bottomNavIds ?? this.bottomNavIds,
+      displayModeRefreshRate:
+          displayModeRefreshRate ?? this.displayModeRefreshRate,
     );
   }
 }
@@ -286,6 +293,8 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
   static const String _bottomDoubleTapActionKey =
       'pref_bottom_double_tap_action';
   static const String _bottomNavIdsKey = 'pref_bottom_nav_ids';
+  static const String _displayModeRefreshRateKey =
+      'pref_display_mode_refresh_rate';
 
   static const _crashlyticsChannel = MethodChannel(
     'com.github.lingyan000.fluxdo/crashlytics',
@@ -342,6 +351,8 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
           bottomNavIds:
               _prefs.getStringList(_bottomNavIdsKey) ??
               const [NavEntryIds.home, NavEntryIds.profile],
+          displayModeRefreshRate:
+              _prefs.getInt(_displayModeRefreshRateKey) ?? 0,
         ),
       ) {
     isPortraitLocked = state.portraitLock;
@@ -546,6 +557,14 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
   Future<void> setBottomNavIds(List<String> ids) async {
     state = state.copyWith(bottomNavIds: ids);
     await _prefs.setStringList(_bottomNavIdsKey, ids);
+  }
+
+  /// 设置 Android 屏幕刷新率偏好（0 = auto，其它为目标刷新率整数）。
+  /// 实际生效由调用方在写入后调用 FlutterDisplayMode.setPreferredMode 完成。
+  Future<void> setDisplayModeRefreshRate(int rate) async {
+    if (state.displayModeRefreshRate == rate) return;
+    state = state.copyWith(displayModeRefreshRate: rate);
+    await _prefs.setInt(_displayModeRefreshRateKey, rate);
   }
 
   void _syncSchedulerConfig() {
