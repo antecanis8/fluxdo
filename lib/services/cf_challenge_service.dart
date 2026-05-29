@@ -429,7 +429,7 @@ class _CfChallengePageState extends State<CfChallengePage> {
   static const _backgroundMaxCheckCount = 10;
   static const _foregroundMaxCheckCount = 60;
   static const _noChallengeCheckDelay = Duration(milliseconds: 1200);
-  static const _revealStateWatchInterval = Duration(milliseconds: 450);
+  static const _revealStateWatchInterval = Duration(milliseconds: 150);
   static const _loadStopFallbackDelay = Duration(milliseconds: 1200);
   static const _pageReadyFallbackDelay = Duration(seconds: 4);
 
@@ -555,15 +555,24 @@ class _CfChallengePageState extends State<CfChallengePage> {
   // Flutter 侧用 CookieManager（可读 HttpOnly cookie）检查 cf_clearance
   // ---------------------------------------------------------------------------
 
-  /// 注入 XHR/fetch 拦截脚本
+  /// 注入 XHR/fetch 拦截 + 页面内 DOM 遮罩脚本
+  ///
+  /// 两层防线，确保跳转期间一帧 404 都不露：
+  /// 1. JS 层：在 `beforeunload` / `pagehide` 的同一个 tick 里，立即往 DOM 里塞一个
+  ///    `position:fixed;z-index:max` 的全屏 div，挡住当前页面剩余的渲染。
+  /// 2. Flutter 层：通过 `onChallengeNavigation` Handler 通知 Dart 端 setState，
+  ///    在 PlatformView 完成新页面渲染前用 Flutter 遮罩盖住。
   Future<void> _injectChallengeInterceptor(
     InAppWebViewController controller,
   ) async {
+    final maskColorHex = _resolveMaskColorHex();
     await controller.evaluateJavascript(
-      source: '''
+      source:
+          '''
 (function() {
   if (window._cfInterceptorInstalled) return;
   window._cfInterceptorInstalled = true;
+  window.__fluxdoCfMaskColor = '$maskColorHex';
 
   var CP = 'cdn-cgi/challenge-platform';
 
@@ -599,9 +608,47 @@ class _CfChallengePageState extends State<CfChallengePage> {
       return resp;
     });
   };
+
+  // 页面内 DOM 遮罩：CF 跳走的瞬间立刻挡住，不依赖 Flutter rebuild
+  function showCfMask() {
+    var root = document.body || document.documentElement;
+    if (!root) return;
+    var mask = document.getElementById('__fluxdoCfMask');
+    if (mask) {
+      mask.style.display = 'block';
+      return;
+    }
+    mask = document.createElement('div');
+    mask.id = '__fluxdoCfMask';
+    mask.style.cssText = 'position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;width:100vw!important;height:100vh!important;margin:0!important;padding:0!important;background:' +
+      (window.__fluxdoCfMaskColor || '#ffffff') +
+      '!important;z-index:2147483647!important;pointer-events:auto!important;';
+    root.appendChild(mask);
+  }
+  window.__fluxdoShowCfMask = showCfMask;
+
+  // 仅监听真正的"页面即将卸载"事件。
+  // 不要 hook history.pushState/replaceState：CF Turnstile 验证过程中
+  // 会用 history API 更新 URL 但不真正导航，hook 会在验证未完成时误触发 fallback。
+  function notifyNav(reason) {
+    showCfMask();
+    try {
+      window.flutter_inappwebview.callHandler('onChallengeNavigation', reason);
+    } catch(e) {}
+  }
+  window.addEventListener('beforeunload', function(){ notifyNav('beforeunload'); });
+  window.addEventListener('pagehide', function(){ notifyNav('pagehide'); });
 })();
 ''',
     );
+  }
+
+  /// 取当前主题的 surface 色作为页面内 mask 颜色，深色模式下不会闪白
+  String _resolveMaskColorHex() {
+    if (!mounted) return '#ffffff';
+    final color = Theme.of(context).colorScheme.surface;
+    final rgb = color.toARGB32() & 0xFFFFFF;
+    return '#${rgb.toRadixString(16).padLeft(6, '0')}';
   }
 
   /// challenge-platform 响应到达时的回调
@@ -667,6 +714,26 @@ class _CfChallengePageState extends State<CfChallengePage> {
     } catch (e) {
       debugPrint('[CfChallenge] cookie 检查异常: $e');
     }
+  }
+
+  /// 页面 unload/pagehide/history 变化时回调
+  ///
+  /// CF 验证完成后会跳到源 URL（/challenge → 404）。在 Android 上 `onLoadStart`
+  /// 对部分 location.replace 跳转触发时机晚于 PlatformView 渲染，导致 404 闪现。
+  /// 借助 JS 在跳走的最早时刻通知 Flutter，立即重置 reveal 状态、覆盖 WebView。
+  Future<void> _onChallengeNavigation(List<dynamic> args) async {
+    if (_hasPopped || !mounted) return;
+    final reason = args.isNotEmpty ? args.first.toString() : 'unknown';
+    if (!_challengeWebViewVisible && _hideOriginFallbackPage) {
+      // 已经覆盖中，不必重复触发 fallback 流程
+      return;
+    }
+    debugPrint('[CfChallenge] JS 导航事件 ($reason)，立刻覆盖 WebView');
+    CfChallengeLogger.log('[VERIFY] JS navigation: $reason');
+    await _handleVerifyOriginFallback(
+      _loadGeneration,
+      reason: 'js navigation: $reason',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1304,6 +1371,11 @@ class _CfChallengePageState extends State<CfChallengePage> {
               handlerName: 'onChallengeComplete',
               callback: _onChallengeComplete,
             );
+            // 注册 JS Handler，CF 验证完成后即将跳走时触发，立刻覆盖避免 404 露出
+            controller.addJavaScriptHandler(
+              handlerName: 'onChallengeNavigation',
+              callback: _onChallengeNavigation,
+            );
           },
           onLoadStart: (controller, url) {
             _loadGeneration++;
@@ -1665,12 +1737,10 @@ class _CfChallengePageState extends State<CfChallengePage> {
             ],
           ),
 
-        // 悬浮验证胶囊
+        // 悬浮验证胶囊：默认收起，点击展开，再次点击进入前台
         if (_isBackground)
           DraggableFloatingPill(
             initialTop: 100,
-            initiallyExpanded: true,
-            tapToExpand: false,
             onTap: _promoteToForeground,
             child: Text(S.current.cf_backgroundVerifying),
           ),
@@ -1693,7 +1763,8 @@ enum _FallbackState {
 
 /// 验证遮罩层
 ///
-/// 三态切换 + shimmer 微动画。负责盖住 WebView 在加载/完成/无挑战时可能闪现的源站 404。
+/// CF 官方风：左上角小 logo + 中心三点波纹 + 底部署名。
+/// 负责盖住 WebView 在加载/完成/无挑战时可能闪现的源站 404。
 class _ChallengeFallbackOverlay extends StatefulWidget {
   const _ChallengeFallbackOverlay({
     required this.state,
@@ -1712,26 +1783,20 @@ class _ChallengeFallbackOverlay extends StatefulWidget {
 
 class _ChallengeFallbackOverlayState extends State<_ChallengeFallbackOverlay>
     with TickerProviderStateMixin {
-  late final AnimationController _shimmerController;
-  late final AnimationController _haloController;
+  late final AnimationController _dotsController;
 
   @override
   void initState() {
     super.initState();
-    _shimmerController = AnimationController(
+    _dotsController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1600),
+      duration: const Duration(milliseconds: 1200),
     )..repeat();
-    _haloController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2200),
-    )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
-    _shimmerController.dispose();
-    _haloController.dispose();
+    _dotsController.dispose();
     super.dispose();
   }
 
@@ -1743,31 +1808,43 @@ class _ChallengeFallbackOverlayState extends State<_ChallengeFallbackOverlay>
 
     return ColoredBox(
       color: colorScheme.surface,
-      child: Stack(
-        children: [
-          // 顶部 shimmer skeleton：模拟"页面正在加载"的轻量条带
-          if (state != _FallbackState.noChallenge)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: _ShimmerStrip(
-                controller: _shimmerController,
-                color: colorScheme.primary,
+      child: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        child: Stack(
+          children: [
+            // 左上角：小 shield + "安全验证"
+            Align(
+              alignment: Alignment.topLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.shield_outlined,
+                    size: 16,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    context.l10n.cf_securityVerifyTitle,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
               ),
             ),
 
-          // 中心三态卡片
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
+            // 中心：动画 + 文案
+            Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 360),
                 child: AnimatedSize(
                   duration: const Duration(milliseconds: 220),
                   curve: Curves.easeOut,
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 260),
+                    duration: const Duration(milliseconds: 240),
                     transitionBuilder: (child, animation) {
                       return FadeTransition(
                         opacity: animation,
@@ -1782,61 +1859,76 @@ class _ChallengeFallbackOverlayState extends State<_ChallengeFallbackOverlay>
                     },
                     child: KeyedSubtree(
                       key: ValueKey(state),
-                      child: _buildCard(theme, colorScheme, state),
+                      child: _buildCenter(theme, colorScheme, state),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+
+            // 底部：Powered by Cloudflare
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Text(
+                'Powered by Cloudflare',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildCard(
+  Widget _buildCenter(
     ThemeData theme,
     ColorScheme colorScheme,
     _FallbackState state,
   ) {
     final l10n = context.l10n;
-    late final String title;
-    late final String message;
-    switch (state) {
-      case _FallbackState.opening:
-        title = l10n.cf_verifyOpeningTitle;
-        message = l10n.cf_verifyOpeningMessage;
-      case _FallbackState.completing:
-        title = l10n.cf_verifyCompletingTitle;
-        message = l10n.cf_verifyCompletingMessage;
-      case _FallbackState.noChallenge:
-        title = l10n.cf_noChallengeTitle;
-        message = l10n.cf_noChallengeMessage;
-    }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildStateIndicator(theme, colorScheme, state),
-        const SizedBox(height: 18),
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: colorScheme.onSurface,
+    if (state == _FallbackState.noChallenge) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: colorScheme.primary.withValues(alpha: 0.12),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.verified_user_outlined,
+              size: 28,
+              color: colorScheme.primary,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-            height: 1.45,
+          const SizedBox(height: 18),
+          Text(
+            l10n.cf_noChallengeTitle,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: colorScheme.onSurface,
+            ),
           ),
-        ),
-        if (state == _FallbackState.noChallenge) ...[
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              l10n.cf_noChallengeMessage,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                height: 1.45,
+              ),
+            ),
+          ),
           const SizedBox(height: 20),
           Wrap(
             alignment: WrapAlignment.center,
@@ -1854,142 +1946,84 @@ class _ChallengeFallbackOverlayState extends State<_ChallengeFallbackOverlay>
               ),
             ],
           ),
-        ] else ...[
-          const SizedBox(height: 20),
-          _SkeletonRows(color: colorScheme.surfaceContainerHighest),
         ],
-      ],
-    );
-  }
-
-  Widget _buildStateIndicator(
-    ThemeData theme,
-    ColorScheme colorScheme,
-    _FallbackState state,
-  ) {
-    if (state == _FallbackState.noChallenge) {
-      return Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: colorScheme.primary.withValues(alpha: 0.12),
-        ),
-        alignment: Alignment.center,
-        child: Icon(
-          Icons.verified_user_outlined,
-          size: 28,
-          color: colorScheme.primary,
-        ),
       );
     }
 
+    // opening / completing
+    final isCompleting = state == _FallbackState.completing;
+    final title = isCompleting
+        ? l10n.cf_verifyCompletingTitle
+        : l10n.cf_verifyOpeningTitle;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 24,
+          child: _BouncingDots(
+            controller: _dotsController,
+            color: colorScheme.primary,
+          ),
+        ),
+        const SizedBox(height: 22),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: colorScheme.onSurface,
+            letterSpacing: 0.1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 三点波纹：每个点按相位轮流"亮起 + 略放大"
+class _BouncingDots extends StatelessWidget {
+  const _BouncingDots({required this.controller, required this.color});
+
+  final AnimationController controller;
+  final Color color;
+
+  Widget _dot(double phaseOffset) {
     return AnimatedBuilder(
-      animation: _haloController,
-      builder: (context, child) {
-        final t = _haloController.value;
-        final haloRadius = 36 + 6 * t;
-        final haloAlpha = 0.16 + 0.18 * (1 - t);
-        return SizedBox(
-          width: 80,
-          height: 80,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: haloRadius * 2,
-                height: haloRadius * 2,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: colorScheme.primary.withValues(alpha: haloAlpha),
-                ),
-              ),
-              SizedBox(
-                width: 36,
-                height: 36,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.6,
-                  valueColor: AlwaysStoppedAnimation(colorScheme.primary),
-                  backgroundColor: colorScheme.primary.withValues(alpha: 0.18),
-                ),
-              ),
-            ],
+      animation: controller,
+      builder: (context, _) {
+        final local = (controller.value + phaseOffset) % 1.0;
+        // sin(πx) 在 [0,1] 上是 0→1→0 的平滑波形
+        final wave = math.sin(local * math.pi);
+        final scale = 0.75 + 0.35 * wave;
+        final alpha = 0.3 + 0.7 * wave;
+        return Transform.scale(
+          scale: scale,
+          child: Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withValues(alpha: alpha),
+            ),
           ),
         );
       },
     );
   }
-}
-
-/// 顶部 shimmer 条带：横向流动的渐变光，营造"加载中"感
-class _ShimmerStrip extends StatelessWidget {
-  const _ShimmerStrip({required this.controller, required this.color});
-
-  final AnimationController controller;
-  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 2,
-      child: AnimatedBuilder(
-        animation: controller,
-        builder: (context, _) {
-          final t = controller.value;
-          return ShaderMask(
-            blendMode: BlendMode.srcIn,
-            shaderCallback: (rect) {
-              return LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  color.withValues(alpha: 0),
-                  color.withValues(alpha: 0.85),
-                  color.withValues(alpha: 0),
-                ],
-                stops: [
-                  (t - 0.25).clamp(0.0, 1.0),
-                  t.clamp(0.0, 1.0),
-                  (t + 0.25).clamp(0.0, 1.0),
-                ],
-              ).createShader(rect);
-            },
-            child: ColoredBox(color: color.withValues(alpha: 0.35)),
-          );
-        },
-      ),
-    );
-  }
-}
-
-/// 中心卡片下方的骨架条：让"正在打开/完成"状态看起来有内容在准备
-class _SkeletonRows extends StatelessWidget {
-  const _SkeletonRows({required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
+    return Row(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        _bar(width: 220, height: 8),
-        const SizedBox(height: 8),
-        _bar(width: 180, height: 8),
-        const SizedBox(height: 8),
-        _bar(width: 140, height: 8),
+        _dot(0.0),
+        const SizedBox(width: 10),
+        _dot(-0.16),
+        const SizedBox(width: 10),
+        _dot(-0.32),
       ],
-    );
-  }
-
-  Widget _bar({required double width, required double height}) {
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(height / 2),
-      ),
     );
   }
 }
