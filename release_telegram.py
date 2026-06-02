@@ -95,33 +95,43 @@ def post_with_retry(url: str, *, max_retries: int = 3, **kwargs) -> requests.Res
     raise RuntimeError(f"请求重试 {max_retries} 次仍失败: {last_exc}")
 
 
-def _check_payload(resp: requests.Response, label: str) -> None:
+def _check_payload(resp: requests.Response, label: str) -> dict:
     try:
         payload = resp.json()
     except ValueError:
         payload = {"ok": False, "error": resp.text}
     if not payload.get("ok"):
         raise RuntimeError(f"{label} 失败: {payload}")
+    return payload
 
 
 # === TG API ===
 
-def send_message(api_base: str, token: str, chat_id: str, html: str) -> None:
+def send_message(api_base: str, token: str, chat_id: str, html: str) -> int:
+    """发主消息（可能多片）。返回第一片 message_id，作为后续 reply 的锚点。"""
     url = f"{api_base}/bot{token}/sendMessage"
     chunks = split_message(html)
+    root_id: int | None = None
     for idx, chunk in enumerate(chunks):
         prefix = "" if idx == 0 else "<i>（续）</i>\n"
-        resp = post_with_retry(
-            url,
-            data={
-                "chat_id": chat_id,
-                "text": prefix + chunk,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": "true",
-            },
-        )
-        _check_payload(resp, f"sendMessage chunk {idx + 1}/{len(chunks)}")
-        print(f"sendMessage chunk {idx + 1}/{len(chunks)} OK")
+        data: dict = {
+            "chat_id": chat_id,
+            "text": prefix + chunk,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": "true",
+        }
+        if root_id is not None:
+            # 续段引用第一片，TG 里整个串聚合显示
+            data["reply_to_message_id"] = root_id
+            data["allow_sending_without_reply"] = "true"
+        resp = post_with_retry(url, data=data)
+        payload = _check_payload(resp, f"sendMessage chunk {idx + 1}/{len(chunks)}")
+        msg_id = payload["result"]["message_id"]
+        if root_id is None:
+            root_id = msg_id
+        print(f"sendMessage chunk {idx + 1}/{len(chunks)} OK (id={msg_id})")
+    assert root_id is not None
+    return root_id
 
 
 def send_files(
@@ -130,6 +140,7 @@ def send_files(
     chat_id: str,
     files: list[Path],
     version: str,
+    reply_to: int | None = None,
 ) -> None:
     url = f"{api_base}/bot{token}/sendMediaGroup"
     batches = list(chunked(files, 10))
@@ -146,11 +157,12 @@ def send_files(
                 opened[key] = fp.open("rb")
             if batch_idx == total - 1:
                 media[-1]["caption"] = caption
-            resp = post_with_retry(
-                url,
-                data={"chat_id": chat_id, "media": json.dumps(media)},
-                files=opened,
-            )
+            data: dict = {"chat_id": chat_id, "media": json.dumps(media)}
+            if reply_to is not None:
+                # 引用主消息，TG 里显示为"文件回复说明"的串联
+                data["reply_to_message_id"] = reply_to
+                data["allow_sending_without_reply"] = "true"
+            resp = post_with_retry(url, data=data, files=opened)
             _check_payload(resp, f"sendMediaGroup 批 {batch_idx + 1}/{total}")
             print(f"sendMediaGroup batch {batch_idx + 1}/{total} ({len(batch)} 个文件) OK")
         finally:
@@ -214,8 +226,8 @@ def main() -> int:
         send_message(api_base, token, chat_id, text_html)
         return 0
 
-    send_message(api_base, token, chat_id, text_html)
-    send_files(api_base, token, chat_id, package_files, version)
+    root_id = send_message(api_base, token, chat_id, text_html)
+    send_files(api_base, token, chat_id, package_files, version, reply_to=root_id)
     return 0
 
 

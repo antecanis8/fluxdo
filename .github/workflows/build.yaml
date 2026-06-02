@@ -466,10 +466,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # stable 把中间所有 beta tag 当不存在，让 release notes 从上一个 stable 起算；
+          # beta 不传 --ignore-tags，每个 beta 只显示自己相对上一个 tag 的增量。
+          if [[ "${{ env.IS_STABLE }}" == "true" ]]; then
+            EXTRA=(--ignore-tags '.*-(alpha|beta|rc).*')
+          else
+            EXTRA=()
+          fi
           # GH Release body + TG 文本源（带 markdown 链接、分组、PR、贡献者）
-          git cliff --current --strip header --output release_notes.md
+          git cliff --current --strip header "${EXTRA[@]}" --output release_notes.md
           # AltStore localizedDescription 用的 plain 文本（无 markdown 链接）
-          git cliff --current --strip all \
+          git cliff --current --strip all "${EXTRA[@]}" \
             --body "$(cat .github/cliff-plain.tera)" \
             --output release_notes.txt
 
