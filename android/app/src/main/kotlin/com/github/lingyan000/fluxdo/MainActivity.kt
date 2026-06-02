@@ -22,18 +22,18 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : FlutterActivity() {
 
     companion object {
         private const val TAG = "AppLink"
         private const val RAW_COOKIE_CHANNEL = "com.fluxdo/raw_cookie"
-        private const val ANDROID_CDP_CHANNEL = "com.fluxdo/android_cdp"
         private const val WEBAUTHN_CHANNEL = "com.fluxdo/webauthn"
     }
-
-    private val androidCdpBridge = AndroidCdpBridge()
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
@@ -48,8 +48,6 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        Log.i("AndroidCdp", "MainActivity.configureFlutterEngine loaded")
-
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "openInBrowser" -> {
@@ -110,6 +108,9 @@ class MainActivity : FlutterActivity() {
 
         // Raw Set-Cookie 写入通道
         // 直接传原始 Set-Cookie 头给 Android CookieManager，保留 host-only 等完整语义
+        // v0.4.0 扩展: 增加 nukeAllVariants / deleteExactCookie / getAllCookieInfos
+        //              / countCookiesByName 用于 Sentinel 内核
+        //              (设计依据: docs/cookie-sync-design-v0.4.0.md §5.4)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RAW_COOKIE_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "setRawCookie" -> {
@@ -130,148 +131,141 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGS", "url and rawSetCookie required", null)
                     }
                 }
+
+                // 暴力穷举删除指定 name 的所有变体
+                // 依据 §3.3.2: Android 删除变体必须 Domain 属性精确匹配
+                // 依据 §3.3.3: Android 无法精确枚举变体, 只能穷举候选组合
+                "nukeAllVariants" -> {
+                    val url = call.argument<String>("url")
+                    val name = call.argument<String>("name")
+                    val domainCandidates = call.argument<List<String?>>("domainCandidates")
+                    val pathCandidates = call.argument<List<String>>("pathCandidates")
+                    if (url != null && name != null && domainCandidates != null && pathCandidates != null) {
+                        ioExecutor.execute {
+                            try {
+                                val mgr = WebCookieManager.getInstance()
+                                val combinations = mutableListOf<Pair<String?, String>>()
+                                for (domain in domainCandidates) {
+                                    for (path in pathCandidates) {
+                                        combinations.add(Pair(domain, path))
+                                    }
+                                }
+                                val latch = CountDownLatch(combinations.size)
+                                val deletedCount = AtomicInteger(0)
+                                for ((domain, path) in combinations) {
+                                    val attrs = mutableListOf("$name=", "Max-Age=0", "Path=$path")
+                                    if (domain != null) attrs.add("Domain=$domain")
+                                    val rawCookie = attrs.joinToString("; ")
+                                    mgr.setCookie(url, rawCookie) { success ->
+                                        if (success == true) deletedCount.incrementAndGet()
+                                        latch.countDown()
+                                    }
+                                }
+                                latch.await(2, TimeUnit.SECONDS)
+                                mgr.flush()
+                                result.success(deletedCount.get())
+                            } catch (e: Exception) {
+                                Log.e("RawCookie", "nukeAllVariants failed: ${e.message}", e)
+                                result.success(0)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "url, name, domainCandidates, pathCandidates required", null)
+                    }
+                }
+
+                // 精确删除指定 (name, domain, path) 的单条 cookie 变体
+                // Android 上退化为单组合 nukeAllVariants
+                "deleteExactCookie" -> {
+                    val url = call.argument<String>("url")
+                    val name = call.argument<String>("name")
+                    val domain = call.argument<String>("domain")
+                    val path = call.argument<String>("path")
+                    if (url != null && name != null && path != null) {
+                        try {
+                            val mgr = WebCookieManager.getInstance()
+                            val attrs = mutableListOf("$name=", "Max-Age=0", "Path=$path")
+                            if (domain != null) attrs.add("Domain=$domain")
+                            val rawCookie = attrs.joinToString("; ")
+                            mgr.setCookie(url, rawCookie) { success ->
+                                mgr.flush()
+                                result.success(success ?: false)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("RawCookie", "deleteExactCookie failed: ${e.message}", e)
+                            result.success(false)
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "url, name, path required", null)
+                    }
+                }
+
+                // 读取指定 url 下所有 cookie 的完整信息
+                // 依据 §3.3.3: Android 旧 API 仅能拿到 name + value
+                //               domain/path/secure/httpOnly/expires 字段返回 null
+                //               (不依赖 GET_COOKIE_INFO, 按 §3.4 用户决策)
+                "getAllCookieInfos" -> {
+                    val url = call.argument<String>("url")
+                    if (url != null) {
+                        try {
+                            val mgr = WebCookieManager.getInstance()
+                            val cookieString = mgr.getCookie(url) ?: ""
+                            val infos = cookieString.split(";").mapNotNull { entry ->
+                                val trimmed = entry.trim()
+                                if (trimmed.isEmpty()) return@mapNotNull null
+                                val eqIdx = trimmed.indexOf('=')
+                                if (eqIdx <= 0) return@mapNotNull null
+                                val cookieName = trimmed.substring(0, eqIdx).trim()
+                                val cookieValue = trimmed.substring(eqIdx + 1).trim()
+                                mapOf<String, Any?>(
+                                    "name" to cookieName,
+                                    "value" to cookieValue,
+                                    "domain" to null,
+                                    "path" to null,
+                                    "isSecure" to null,
+                                    "isHttpOnly" to null,
+                                    "expiresMillis" to null,
+                                )
+                            }
+                            result.success(infos)
+                        } catch (e: Exception) {
+                            Log.e("RawCookie", "getAllCookieInfos failed: ${e.message}", e)
+                            result.success(emptyList<Map<String, Any?>>())
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "url required", null)
+                    }
+                }
+
+                // 统计指定 url 下 cookie name 的变体数
+                // 基于 CookieManager.getCookie() 拼接字符串拆分计数
+                "countCookiesByName" -> {
+                    val url = call.argument<String>("url")
+                    val name = call.argument<String>("name")
+                    if (url != null && name != null) {
+                        try {
+                            val mgr = WebCookieManager.getInstance()
+                            val cookieString = mgr.getCookie(url) ?: ""
+                            val count = cookieString.split(";").count { entry ->
+                                val trimmed = entry.trim()
+                                val eqIdx = trimmed.indexOf('=')
+                                if (eqIdx <= 0) false
+                                else trimmed.substring(0, eqIdx).trim() == name
+                            }
+                            result.success(count)
+                        } catch (e: Exception) {
+                            Log.e("RawCookie", "countCookiesByName failed: ${e.message}", e)
+                            result.success(0)
+                        }
+                    } else {
+                        result.error("INVALID_ARGS", "url, name required", null)
+                    }
+                }
+
                 else -> result.notImplemented()
             }
         }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ANDROID_CDP_CHANNEL).setMethodCallHandler { call, result ->
-            Log.i("AndroidCdp", "channel method=${call.method}")
-            when (call.method) {
-                "isAvailable" -> {
-                    ioExecutor.execute {
-                        try {
-                            Log.i("AndroidCdp", "handling isAvailable")
-                            result.success(androidCdpBridge.isAvailable())
-                        } catch (e: Exception) {
-                            Log.e("AndroidCdp", "isAvailable failed: ${e.message}", e)
-                            result.success(false)
-                        }
-                    }
-                }
-                "getCookies" -> {
-                    val urls = call.argument<List<String>>("urls")
-                    Log.i("AndroidCdp", "handling getCookies urls=${urls?.size ?: 0}")
-                    if (urls == null || urls.isEmpty()) {
-                        result.error(
-                            "INVALID_ARGS",
-                            "urls required",
-                            mapOf(
-                                "method" to "getCookies",
-                                "urlCount" to (urls?.size ?: 0),
-                            ),
-                        )
-                    } else {
-                        ioExecutor.execute {
-                            try {
-                                result.success(androidCdpBridge.getCookies(urls))
-                            } catch (e: Exception) {
-                                Log.e("AndroidCdp", "getCookies failed: ${e.message}", e)
-                                result.error(
-                                    "CDP_FAILED",
-                                    e.message,
-                                    mapOf(
-                                        "method" to "getCookies",
-                                        "urlCount" to urls.size,
-                                        "errorType" to e.javaClass.name,
-                                        "retryableDisconnect" to androidCdpBridge.isRetryableDisconnectError(e),
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                }
-                "awaitTargetReady" -> {
-                    val timeoutMs = call.argument<Number>("timeoutMs")?.toLong() ?: 2500L
-                    Log.i("AndroidCdp", "handling awaitTargetReady timeoutMs=$timeoutMs")
-                    ioExecutor.execute {
-                        try {
-                            result.success(androidCdpBridge.awaitTargetReady(timeoutMs))
-                        } catch (e: Exception) {
-                            Log.e("AndroidCdp", "awaitTargetReady failed: ${e.message}", e)
-                                result.error(
-                                    "CDP_FAILED",
-                                    e.message,
-                                    mapOf(
-                                        "method" to "awaitTargetReady",
-                                        "timeoutMs" to timeoutMs,
-                                        "errorType" to e.javaClass.name,
-                                        "retryableDisconnect" to androidCdpBridge.isRetryableDisconnectError(e),
-                                    ),
-                                )
-                        }
-                    }
-                }
-                "setCookie" -> {
-                    val params = call.arguments<Map<String, Any?>>()
-                    Log.i("AndroidCdp", "handling setCookie keys=${params?.keys ?: emptySet<String>()}")
-                    if (params == null || params.isEmpty()) {
-                        result.error(
-                            "INVALID_ARGS",
-                            "params required",
-                            mapOf(
-                                "method" to "setCookie",
-                                "keys" to (params?.keys?.toList() ?: emptyList<String>()),
-                            ),
-                        )
-                    } else {
-                        ioExecutor.execute {
-                            try {
-                                result.success(androidCdpBridge.setCookie(params))
-                            } catch (e: Exception) {
-                                Log.e("AndroidCdp", "setCookie failed: ${e.message}", e)
-                                result.error(
-                                    "CDP_FAILED",
-                                    e.message,
-                                    mapOf(
-                                        "method" to "setCookie",
-                                        "keys" to params.keys.toList(),
-                                        "cookieName" to params["name"],
-                                        "url" to params["url"],
-                                        "errorType" to e.javaClass.name,
-                                        "retryableDisconnect" to androidCdpBridge.isRetryableDisconnectError(e),
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                }
-                "deleteCookies" -> {
-                    val params = call.arguments<Map<String, Any?>>()
-                    Log.i("AndroidCdp", "handling deleteCookies keys=${params?.keys ?: emptySet<String>()}")
-                    if (params == null || params.isEmpty()) {
-                        result.error(
-                            "INVALID_ARGS",
-                            "params required",
-                            mapOf(
-                                "method" to "deleteCookies",
-                                "keys" to (params?.keys?.toList() ?: emptyList<String>()),
-                            ),
-                        )
-                    } else {
-                        ioExecutor.execute {
-                            try {
-                                result.success(androidCdpBridge.deleteCookies(params))
-                            } catch (e: Exception) {
-                                Log.e("AndroidCdp", "deleteCookies failed: ${e.message}", e)
-                                result.error(
-                                    "CDP_FAILED",
-                                    e.message,
-                                    mapOf(
-                                        "method" to "deleteCookies",
-                                        "keys" to params.keys.toList(),
-                                        "cookieName" to params["name"],
-                                        "url" to params["url"],
-                                        "errorType" to e.javaClass.name,
-                                        "retryableDisconnect" to androidCdpBridge.isRetryableDisconnectError(e),
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                }
-                else -> result.notImplemented()
-            }
-        }
 
         // WebAuthn/PassKey 支持通道
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WEBAUTHN_CHANNEL).setMethodCallHandler { call, result ->

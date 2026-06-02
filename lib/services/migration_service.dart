@@ -1,9 +1,13 @@
+import 'dart:convert';
+import 'dart:io' as io;
+
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants.dart';
 import 'network/cookie/cookie_jar_service.dart';
-import 'network/cookie/android_cdp_feature.dart';
 
 /// 迁移项定义
 class Migration {
@@ -87,18 +91,6 @@ class MigrationService {
         requiresRelogin = true;
       },
     ),
-    Migration(
-      key: 'android_native_cdp_default_off_v1',
-      name: 'Android native CDP default off',
-      shouldRun: (prefs) async {
-        return defaultTargetPlatform == TargetPlatform.android &&
-            prefs.containsKey(AndroidCdpFeature.prefKey);
-      },
-      run: () async {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(AndroidCdpFeature.prefKey, false);
-      },
-    ),
     // v4: storageKey 放宽（去掉 hostOnly）— 清理旧 cookie 防止多副本残留
     // 只要不是全新安装就清除（游客也可能有残留重复 cookie）
     Migration(
@@ -126,11 +118,78 @@ class MigrationService {
         requiresRelogin = true;
       },
     ),
+    // v5 (cookie 引擎 v0.4.0): RawSetCookieQueue 移除
+    // 把 .cookies/pending_set_cookies.json 队列文件中残留的 cookie 回灌到 jar
+    // 然后删除文件。不强制重登。
+    // 设计依据: docs/cookie-sync-design-v0.4.0.md §8.5
+    Migration(
+      key: 'cookie_queue_removed_v5',
+      name: 'RawSetCookieQueue removal migration',
+      shouldRun: (prefs) async {
+        try {
+          final dir = await getApplicationDocumentsDirectory();
+          final queueFile = io.File(
+            p.join(dir.path, '.cookies', 'pending_set_cookies.json'),
+          );
+          return await queueFile.exists();
+        } catch (_) {
+          return false;
+        }
+      },
+      run: () async {
+        try {
+          final dir = await getApplicationDocumentsDirectory();
+          final queueFile = io.File(
+            p.join(dir.path, '.cookies', 'pending_set_cookies.json'),
+          );
+          if (!await queueFile.exists()) return;
+
+          final content = await queueFile.readAsString();
+          if (content.trim().isNotEmpty) {
+            final jar = CookieJarService();
+            if (!jar.isInitialized) await jar.initialize();
+            try {
+              final entries = jsonDecode(content) as List;
+              for (final raw in entries) {
+                if (raw is! Map) continue;
+                final url = raw['url']?.toString();
+                final header = raw['raw']?.toString();
+                if (url == null || header == null) continue;
+                final uri = Uri.tryParse(url);
+                if (uri == null) continue;
+                try {
+                  await jar.cookieJar.saveFromResponse(uri, [
+                    io.Cookie.fromSetCookieValue(header),
+                  ]);
+                } catch (e) {
+                  debugPrint(
+                    '[Migration v5] 单条 cookie 回灌失败 url=$url: $e',
+                  );
+                }
+              }
+            } catch (e) {
+              debugPrint('[Migration v5] 解析队列文件失败: $e');
+            }
+          }
+          await queueFile.delete();
+          debugPrint('[Migration v5] 已清理 RawSetCookieQueue 持久化文件');
+        } catch (e) {
+          debugPrint('[Migration v5] 失败 (忽略): $e');
+        }
+      },
+    ),
   ];
 
+  /// 判断是否为 v0.1.x 以前的老用户。
+  ///
+  /// **不要**把 `cookie_clean_slate_v2` 当作老用户标记 —— 它是 v2 迁移的
+  /// 完成标记 (runAll 会对全新用户也 setBool true 表示"跳过"),把它作为
+  /// 老用户依据会让 v3 / v4 对全新用户误触发。
+  ///
+  /// 真正能区分"老用户"的只有 v0.1.x 时代的 `cookie_domain_migration_v2`,
+  /// 全新用户的 prefs 中不存在此 key。
   static bool _hasLegacyCookieMigrationMarker(SharedPreferences prefs) {
-    return prefs.getBool('cookie_clean_slate_v2') == true ||
-        prefs.getBool('cookie_domain_migration_v2') == true;
+    return prefs.getBool('cookie_domain_migration_v2') == true;
   }
 
   /// 在 main() 中调用，在所有网络服务启动之前执行
