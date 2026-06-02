@@ -129,55 +129,69 @@ class WebViewCookiePriming {
           )
           .toList(growable: false);
 
-      // 3. 快速检查：WV 中是否已有所有 critical cookies
-      var allPresent = true;
+      // 3. 总是重灌:
+      // 不再走"快速检查"的 fast path - 因为 countCookiesByName 只检查数量,
+      // 无法保证 WV 中 cookie 的 value 与 jar 一致 (例如升级场景下 WV 中可能
+      // 残留旧值的 cookie, fast path 会误判为"已就绪"跳过重灌)。
+      //
+      // 直接从 jar 重灌一遍写入 WV 是确定性同步, 代价小 (3 次 setRawCookie)。
+      var injected = 0;
+      var attempted = 0;
+      var skippedEmpty = 0;
+      var skippedExpired = 0;
       for (final cookie in critical) {
-        if (cookie.value.isEmpty) continue;
-        if (_isExpired(cookie)) continue;
+        if (cookie.value.isEmpty) {
+          skippedEmpty++;
+          continue;
+        }
+        if (_isExpired(cookie)) {
+          skippedExpired++;
+          continue;
+        }
+        attempted++;
+        final ok = await _writer.setRawCookie(url, _buildRawHeader(cookie));
+        if (ok) injected++;
+        debugPrint(
+          '[Priming] setRawCookie ${cookie.name} '
+          '(host-only, len=${cookie.value.length}) → $ok',
+        );
+      }
+
+      // 4. sweep 兜底 (清理可能残留的多变体)
+      await _sentinel.sweepAll(url);
+
+      // 5. verify: 回读检查 WV 是否真有 critical cookies
+      // 不阻塞流程, 但日志能暴露"setRawCookie 返回 true 但 WV 实际看不到"问题。
+      var verified = 0;
+      final missingNames = <String>[];
+      for (final cookie in critical) {
+        if (cookie.value.isEmpty || _isExpired(cookie)) continue;
         final count = await _writer.countCookiesByName(url, cookie.name);
-        if (count == 0) {
-          allPresent = false;
-          break;
+        if (count > 0) {
+          verified++;
+        } else {
+          missingNames.add(cookie.name);
         }
       }
 
-      if (allPresent && critical.isNotEmpty) {
-        // 都在，只兜底 sweep 一遍保证唯一性
-        await _sentinel.sweepAll(url);
-        _isPrimed = true;
-        debugPrint(
-          '[Priming] WV cookies already present, sweepAll only ($url)',
-        );
-        CookieLogger.priming(
-          event: 'completed',
-          url: url,
-          cookiesInjected: 0,
-          durationMs: stopwatch.elapsedMilliseconds,
-        );
-        return;
-      }
-
-      // 4. 全量重灌
-      var injected = 0;
-      for (final cookie in critical) {
-        if (cookie.value.isEmpty) continue;
-        if (_isExpired(cookie)) continue;
-        final ok = await _writer.setRawCookie(url, _buildRawHeader(cookie));
-        if (ok) injected++;
-      }
-
-      // 5. sweep 兜底（确保变体唯一）
-      await _sentinel.sweepAll(url);
-
       _isPrimed = true;
+      final verifyMismatch = attempted > 0 && verified < attempted;
       debugPrint(
-        '[Priming] WV primed: $injected cookies injected for $url',
+        '[Priming] WV primed for $url: '
+        'injected=$injected/$attempted, verified=$verified/$attempted '
+        '(critical=${critical.length}, '
+        'skippedEmpty=$skippedEmpty, skippedExpired=$skippedExpired)'
+        '${verifyMismatch ? ", MISSING in WV: $missingNames" : ""}',
       );
       CookieLogger.priming(
-        event: 'completed',
+        event: verifyMismatch ? 'failed' : 'completed',
         url: url,
         cookiesInjected: injected,
         durationMs: stopwatch.elapsedMilliseconds,
+        reason: verifyMismatch
+            ? 'verify mismatch: missing=$missingNames '
+                'verified=$verified/$attempted'
+            : null,
       );
     } catch (e, s) {
       debugPrint('[Priming] prime $url failed: $e\n$s');
