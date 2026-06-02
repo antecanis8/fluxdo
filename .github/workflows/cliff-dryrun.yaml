@@ -1,0 +1,56 @@
+name: Cliff dry-run
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要 dry-run 的 tag（必须为已存在的 tag，例如 v0.2.15）'
+        required: true
+        default: 'v0.2.15'
+
+jobs:
+  dryrun:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Checkout target tag
+        run: git checkout ${{ inputs.tag }}
+
+      - name: Mode 1 - Full CHANGELOG.md (beta folded into stable)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "============================================================"
+          echo "Mode 1: Full CHANGELOG.md (--ignore-tags beta|rc|alpha)"
+          echo "用途：写回 main 分支的 CHANGELOG.md，beta 提交折叠到对应 stable"
+          echo "============================================================"
+          git cliff --ignore-tags '.*-(alpha|beta|rc).*'
+
+      - name: Mode 2 - Release notes for GitHub Release / Telegram
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "============================================================"
+          echo "Mode 2: Release notes (--current --strip header)"
+          echo "用途：当前 tag 的 release notes，喂给 GH Release body 和 TG"
+          echo "============================================================"
+          git cliff --current --strip header
+
+      - name: Mode 3 - AltStore plain text
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "============================================================"
+          echo "Mode 3: AltStore plain notes"
+          echo "用途：AltStore source.json 的 localizedDescription"
+          echo "============================================================"
+          git cliff --current --strip all --body "$(cat .github/cliff-plain.tera)"

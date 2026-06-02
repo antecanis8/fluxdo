@@ -365,8 +365,26 @@ jobs:
           ref: refs/heads/main
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate Changelog
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Generate CHANGELOG.md (cliff, beta folded into stable)
+        id: cliff
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git cliff \
+            --tag "${{ github.ref_name }}" \
+            --ignore-tags '.*-(alpha|beta|rc).*' \
+            --output CHANGELOG.md
+
+      - name: Fallback - Generate Changelog (legacy bash)
+        if: steps.cliff.outcome == 'failure'
+        run: |
+          echo "::warning::git-cliff 失败，回退到 legacy bash 拼接"
           last_ver=$(grep -m1 '^## ' CHANGELOG.md 2>/dev/null | sed 's/^## //' || echo "")
 
           tags=($(git tag --merged HEAD --sort=-creatordate))
@@ -398,7 +416,7 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add CHANGELOG.md
           if ! git diff --cached --quiet; then
-            git commit -m "Update changelog for ${{ github.ref_name }}"
+            git commit -m "chore(changelog): regenerate for ${{ github.ref_name }} [skip ci]"
             git push
           fi
 
@@ -437,8 +455,28 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Generate release notes
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Generate release notes (cliff)
+        id: cliff_notes
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # GH Release body + TG 文本源（带 markdown 链接、分组、PR、贡献者）
+          git cliff --current --strip header --output release_notes.md
+          # AltStore localizedDescription 用的 plain 文本（无 markdown 链接）
+          git cliff --current --strip all \
+            --body "$(cat .github/cliff-plain.tera)" \
+            --output release_notes.txt
+
+      - name: Fallback - Generate release notes (legacy bash)
+        if: steps.cliff_notes.outcome == 'failure'
+        run: |
+          echo "::warning::git-cliff 失败，回退到 legacy bash"
           tags=($(git tag --merged HEAD --sort=-creatordate))
           preTag=$(curl -s "https://api.github.com/repos/lingyan000/fluxdo/releases/latest" | \
           sed -nE 's/.*"tag_name": "([^"]+)".*/\1/p' || echo "")
@@ -459,6 +497,8 @@ jobs:
               grep -v '^- chore: bump version to ' >> "$out" || true
             echo "" >> "$out"
           done
+          # fallback 模式下 plain 文本直接复制 markdown 版本
+          cp release_notes.md release_notes.txt
 
       - name: Wait for telegram-bot-api
         env:
@@ -484,6 +524,7 @@ jobs:
           IS_PRERELEASE: ${{ contains(github.ref, '-') }}
           TELEGRAM_API_BASE: http://localhost:8081
         if: env.TELEGRAM_BOT_TOKEN
+        continue-on-error: true
         run: |
           python -m pip install --upgrade pip
           pip install requests
@@ -519,7 +560,8 @@ jobs:
           VERSION_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           DOWNLOAD_URL="https://github.com/lingyan000/fluxdo/releases/download/v${VERSION}/fluxdo-unsigned.ipa"
           IPA_SIZE=$(stat -c%s "./dist/fluxdo-unsigned.ipa" 2>/dev/null || stat -f%z "./dist/fluxdo-unsigned.ipa")
-          VERSION_DESC=$(cat release_notes.md | head -50)
+          # 从 plain 版本按段落边界截断到 1500 字符以内，避免硬截到段落中间
+          VERSION_DESC=$(awk 'BEGIN{RS=""; ORS="\n\n"; n=0} {n+=length($0)+2; if(n>1500) exit; print}' release_notes.txt)
 
           # 尝试从 gh-pages 获取已有的 source.json（保留历史版本）
           EXISTING_SOURCE=""
