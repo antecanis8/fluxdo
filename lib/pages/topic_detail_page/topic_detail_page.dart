@@ -1310,6 +1310,77 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
     );
   }
 
+  /// 路由进度悬浮条手势触发的 [ProgressGestureAction] 到对应业务方法
+  void _handleProgressGesture(
+    ProgressGestureAction action,
+    TopicDetail detail,
+    TopicDetailNotifier notifier,
+  ) {
+    switch (action) {
+      case ProgressGestureAction.openTimeline:
+        _showTimelineSheet(detail);
+      case ProgressGestureAction.scrollToTop:
+        unawaited(_scrollToTop());
+      case ProgressGestureAction.jumpToUnread:
+        unawaited(_jumpToUnreadPost());
+      case ProgressGestureAction.nextPost:
+        _scrollToNextPost();
+      case ProgressGestureAction.previousPost:
+        _scrollToPreviousPost();
+      case ProgressGestureAction.reply:
+        unawaited(_handleReply(null));
+      case ProgressGestureAction.share:
+        _shareTopic();
+      case ProgressGestureAction.shareImage:
+        _shareAsImage();
+      case ProgressGestureAction.exportArticle:
+        _showExportSheet();
+      case ProgressGestureAction.openInBrowser:
+        _openInBrowser();
+      case ProgressGestureAction.bookmark:
+        final traceId = createBookmarkEditTraceId();
+        writeBookmarkEditTrace(
+          phase: 'gesture_triggered',
+          traceId: traceId,
+          source: 'topic_detail_progress_gesture',
+          message: '进度悬浮条手势触发编辑书签',
+          topicId: widget.topicId,
+        );
+        unawaited(
+          _handleBookmark(
+            notifier,
+            traceId: traceId,
+            source: 'topic_detail_progress_gesture',
+          ),
+        );
+      case ProgressGestureAction.readLater:
+        _handleReadLater();
+      case ProgressGestureAction.notification:
+        showNotificationLevelSheet(
+          context,
+          detail.notificationLevel,
+          (level) => _handleNotificationLevelChanged(notifier, level),
+        );
+      case ProgressGestureAction.filter:
+        _showFilterSheet();
+      case ProgressGestureAction.toggleNestedView:
+        _toggleNestedView();
+      case ProgressGestureAction.aiAssistant:
+        _onToggleAiPanel();
+      case ProgressGestureAction.readingSettings:
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ReadingSettingsPage()),
+        );
+      case ProgressGestureAction.search:
+        ref
+            .read(topicSearchProvider(widget.topicId).notifier)
+            .enterSearchMode();
+      case ProgressGestureAction.refresh:
+        unawaited(_handleRefresh());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1716,6 +1787,8 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
                     onOpenInBrowser: _openInBrowser,
                     onReply: () => _handleReply(null),
                     onProgressTap: () => _showTimelineSheet(detail),
+                    onProgressGesture: (action) =>
+                        _handleProgressGesture(action, detail, notifier),
                     isSummaryMode: notifier.isSummaryMode,
                     isAuthorOnlyMode: notifier.isAuthorOnlyMode,
                     isTopLevelMode: notifier.isTopLevelMode,

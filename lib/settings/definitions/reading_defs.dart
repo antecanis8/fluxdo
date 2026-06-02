@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/s.dart';
+import '../../pages/topic_detail_page/widgets/progress_gesture_action_meta.dart';
 import '../../providers/preferences_provider.dart';
+import '../../utils/dialog_utils.dart';
 import '../settings_model.dart';
 
 /// 阅读设置数据声明
@@ -128,6 +131,161 @@ List<SettingsGroup> buildReadingGroups(BuildContext context) {
                 ref.read(preferencesProvider.notifier).setAiSwipeEntry(v),
           ),
           condition: () => Platform.isIOS || Platform.isAndroid,
+        ),
+      ],
+    ),
+    SettingsGroup(
+      title: l10n.progressGesture_title,
+      icon: Icons.gesture_rounded,
+      items: [
+        SwitchModel(
+          id: 'progressGesturesEnabled',
+          title: l10n.progressGesture_enable,
+          subtitle: l10n.progressGesture_enableDesc,
+          icon: Icons.swipe_rounded,
+          getValue: (ref) =>
+              ref.watch(preferencesProvider).progressGesturesEnabled,
+          onChanged: (ref, v) => ref
+              .read(preferencesProvider.notifier)
+              .setProgressGesturesEnabled(v),
+        ),
+        CustomModel(
+          id: 'progressGestureSwipeLeft',
+          title: l10n.progressGesture_swipeLeft,
+          builder: (context, ref) {
+            final enabled = ref.watch(
+              preferencesProvider.select((p) => p.progressGesturesEnabled),
+            );
+            final current = ref.watch(
+              preferencesProvider.select((p) => p.progressGestureSwipeLeft),
+            );
+            final meta = progressGestureActionMeta(context, current);
+            return ListTile(
+              enabled: enabled,
+              leading: Icon(
+                Icons.swipe_left_rounded,
+                color: enabled
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).disabledColor,
+              ),
+              title: Text(context.l10n.progressGesture_swipeLeft),
+              subtitle: Text(meta.label),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: enabled
+                  ? () => _showGestureActionPicker(
+                      context,
+                      ref,
+                      current,
+                      (a) => ref
+                          .read(preferencesProvider.notifier)
+                          .setProgressGestureSwipeLeft(a),
+                    )
+                  : null,
+            );
+          },
+        ),
+        CustomModel(
+          id: 'progressGestureSwipeRight',
+          title: l10n.progressGesture_swipeRight,
+          builder: (context, ref) {
+            final enabled = ref.watch(
+              preferencesProvider.select((p) => p.progressGesturesEnabled),
+            );
+            final current = ref.watch(
+              preferencesProvider.select((p) => p.progressGestureSwipeRight),
+            );
+            final meta = progressGestureActionMeta(context, current);
+            return ListTile(
+              enabled: enabled,
+              leading: Icon(
+                Icons.swipe_right_rounded,
+                color: enabled
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).disabledColor,
+              ),
+              title: Text(context.l10n.progressGesture_swipeRight),
+              subtitle: Text(meta.label),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: enabled
+                  ? () => _showGestureActionPicker(
+                      context,
+                      ref,
+                      current,
+                      (a) => ref
+                          .read(preferencesProvider.notifier)
+                          .setProgressGestureSwipeRight(a),
+                    )
+                  : null,
+            );
+          },
+        ),
+        CustomModel(
+          id: 'progressGestureSwipeUp',
+          title: l10n.progressGesture_swipeUp,
+          builder: (context, ref) {
+            final enabled = ref.watch(
+              preferencesProvider.select((p) => p.progressGesturesEnabled),
+            );
+            final current = ref.watch(
+              preferencesProvider.select((p) => p.progressGestureSwipeUp),
+            );
+            final meta = progressGestureActionMeta(context, current);
+            return ListTile(
+              enabled: enabled,
+              leading: Icon(
+                Icons.swipe_up_rounded,
+                color: enabled
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).disabledColor,
+              ),
+              title: Text(context.l10n.progressGesture_swipeUp),
+              subtitle: Text(meta.label),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: enabled
+                  ? () => _showGestureActionPicker(
+                      context,
+                      ref,
+                      current,
+                      (a) => ref
+                          .read(preferencesProvider.notifier)
+                          .setProgressGestureSwipeUp(a),
+                    )
+                  : null,
+            );
+          },
+        ),
+        CustomModel(
+          id: 'progressGestureMenuActions',
+          title: l10n.progressGesture_longPressMenu,
+          subtitle: l10n.progressGesture_longPressMenuDesc,
+          builder: (context, ref) {
+            final enabled = ref.watch(
+              preferencesProvider.select((p) => p.progressGesturesEnabled),
+            );
+            final items = ref.watch(
+              preferencesProvider.select((p) => p.progressGestureMenuActions),
+            );
+            return ListTile(
+              enabled: enabled,
+              leading: Icon(
+                Icons.fingerprint_rounded,
+                color: enabled
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).disabledColor,
+              ),
+              title: Text(context.l10n.progressGesture_longPressMenu),
+              subtitle: Text(
+                '${items.length}/$kProgressGestureMenuMax · '
+                '${items.map((a) => progressGestureActionMeta(context, a).label).join(' · ')}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: enabled
+                  ? () => _showGestureMenuActionsPicker(context, ref, items)
+                  : null,
+            );
+          },
         ),
       ],
     ),
@@ -259,6 +417,248 @@ void _showBookmarksOpenModePicker(
   ).then((selected) {
     if (selected != null) {
       ref.read(preferencesProvider.notifier).setBookmarksOpenMode(selected);
+    }
+  });
+}
+
+void _showGestureActionPicker(
+  BuildContext context,
+  WidgetRef ref,
+  ProgressGestureAction current,
+  void Function(ProgressGestureAction) onPicked,
+) {
+  final l10n = context.l10n;
+  showDialog<ProgressGestureAction>(
+    context: context,
+    builder: (dialogContext) {
+      final screen = MediaQuery.of(dialogContext).size;
+      // 桌面端拉宽到 560，移动端贴近全宽；自动按列宽切换 1/2/3 列
+      final dialogWidth = math.min(screen.width - 48, 560.0);
+      final dialogMaxHeight = math.min(screen.height * 0.85, 640.0);
+      return Dialog(
+        insetPadding: const EdgeInsets.symmetric(
+          horizontal: 24,
+          vertical: 24,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: dialogWidth,
+            maxHeight: dialogMaxHeight,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+                child: Text(
+                  l10n.progressGesture_pickAction,
+                  style: Theme.of(dialogContext).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Flexible(
+                child: GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                  shrinkWrap: true,
+                  gridDelegate:
+                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 240,
+                        mainAxisExtent: 52,
+                        crossAxisSpacing: 4,
+                        mainAxisSpacing: 4,
+                      ),
+                  itemCount: ProgressGestureAction.values.length,
+                  itemBuilder: (context, index) {
+                    final action = ProgressGestureAction.values[index];
+                    final meta = progressGestureActionMeta(context, action);
+                    final isCurrent = action == current;
+                    final theme = Theme.of(context);
+                    return InkWell(
+                      onTap: () => Navigator.pop(dialogContext, action),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isCurrent
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_unchecked,
+                              color: isCurrent
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurfaceVariant,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 10),
+                            Icon(
+                              meta.icon,
+                              size: 18,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                meta.label,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: isCurrent
+                                      ? theme.colorScheme.primary
+                                      : null,
+                                  fontWeight: isCurrent
+                                      ? FontWeight.w600
+                                      : null,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: Text(l10n.common_cancel),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  ).then((selected) {
+    if (selected != null) onPicked(selected);
+  });
+}
+
+void _showGestureMenuActionsPicker(
+  BuildContext context,
+  WidgetRef ref,
+  List<ProgressGestureAction> current,
+) {
+  final l10n = context.l10n;
+  final initial = List<ProgressGestureAction>.from(current);
+
+  showAppBottomSheet<List<ProgressGestureAction>>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final selected = List<ProgressGestureAction>.from(initial);
+      return StatefulBuilder(
+        builder: (context, setState) {
+          final theme = Theme.of(context);
+          final atLimit = selected.length >= kProgressGestureMenuMax;
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                    child: Text(
+                      l10n.progressGesture_pickMenuActions,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                    child: Text(
+                      '${selected.length}/$kProgressGestureMenuMax'
+                      '${atLimit ? ' · ${l10n.progressGesture_menuCountFull}' : ''}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: atLimit
+                            ? theme.colorScheme.error
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final action in ProgressGestureAction.values)
+                            Builder(
+                              builder: (context) {
+                                final meta = progressGestureActionMeta(
+                                  context,
+                                  action,
+                                );
+                                final isSelected = selected.contains(action);
+                                final canSelect = isSelected || !atLimit;
+                                return FilterChip(
+                                  label: Text(meta.label),
+                                  avatar: Icon(meta.icon, size: 18),
+                                  selected: isSelected,
+                                  showCheckmark: false,
+                                  onSelected: canSelect
+                                      ? (v) {
+                                          setState(() {
+                                            if (v) {
+                                              selected.add(action);
+                                            } else {
+                                              selected.remove(action);
+                                            }
+                                          });
+                                        }
+                                      : null,
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: Text(l10n.common_cancel),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: selected.isEmpty
+                              ? null
+                              : () => Navigator.pop(sheetContext, selected),
+                          child: Text(l10n.common_confirm),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  ).then((result) {
+    if (result != null) {
+      ref
+          .read(preferencesProvider.notifier)
+          .setProgressGestureMenuActions(result);
     }
   });
 }

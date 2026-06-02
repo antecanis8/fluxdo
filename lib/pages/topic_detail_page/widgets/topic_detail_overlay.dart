@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../../models/topic.dart';
+import '../../../providers/preferences_provider.dart';
 import '../../../widgets/topic/topic_progress.dart';
 import 'topic_bottom_bar.dart';
+import 'topic_progress_gestures.dart';
 
 /// 话题详情页浮层
 /// 包含进度栏、底部操作栏和悬浮回复按钮
@@ -18,6 +20,7 @@ class TopicDetailOverlay extends StatelessWidget {
   final VoidCallback onOpenInBrowser;
   final VoidCallback onReply;
   final VoidCallback onProgressTap;
+  final ValueChanged<ProgressGestureAction>? onProgressGesture;
   final bool isSummaryMode;
   final bool isAuthorOnlyMode;
   final bool isTopLevelMode;
@@ -43,6 +46,7 @@ class TopicDetailOverlay extends StatelessWidget {
     required this.onOpenInBrowser,
     required this.onReply,
     required this.onProgressTap,
+    this.onProgressGesture,
     this.isSummaryMode = false,
     this.isAuthorOnlyMode = false,
     this.isTopLevelMode = false,
@@ -73,11 +77,14 @@ class TopicDetailOverlay extends StatelessWidget {
             left: 0,
             right: 0,
             child: Center(
-              child: TopicProgress(
-                currentIndex: currentStreamIndex,
-                totalCount: totalCount,
-                progressPercent: progressPercent,
-                onTap: onProgressTap,
+              child: TopicProgressGestures(
+                onAction: onProgressGesture ?? (_) {},
+                child: TopicProgress(
+                  currentIndex: currentStreamIndex,
+                  totalCount: totalCount,
+                  progressPercent: progressPercent,
+                  onTap: onProgressTap,
+                ),
               ),
             ),
           ),

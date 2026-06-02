@@ -37,6 +37,48 @@ enum BookmarksOpenMode {
   }
 }
 
+/// 进度悬浮条手势可绑定的动作
+enum ProgressGestureAction {
+  openTimeline,
+  scrollToTop,
+  jumpToUnread,
+  nextPost,
+  previousPost,
+  reply,
+  share,
+  shareImage,
+  exportArticle,
+  openInBrowser,
+  bookmark,
+  readLater,
+  notification,
+  filter,
+  toggleNestedView,
+  aiAssistant,
+  readingSettings,
+  search,
+  refresh;
+
+  static ProgressGestureAction fromString(String? value) {
+    return ProgressGestureAction.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => ProgressGestureAction.openTimeline,
+    );
+  }
+}
+
+/// 长按菜单候选功能默认列表（6 项），覆盖常用操作
+const List<ProgressGestureAction> _defaultProgressGestureMenu = [
+  ProgressGestureAction.openTimeline,
+  ProgressGestureAction.scrollToTop,
+  ProgressGestureAction.reply,
+  ProgressGestureAction.bookmark,
+  ProgressGestureAction.share,
+  ProgressGestureAction.aiAssistant,
+];
+
+const int kProgressGestureMenuMax = 8;
+
 class AppPreferences {
   static const Object _unset = Object();
 
@@ -139,6 +181,21 @@ class AppPreferences {
   /// Android 屏幕刷新率偏好（0 = auto/跟随系统，其它为目标刷新率，如 60 / 90 / 120）
   final int displayModeRefreshRate;
 
+  /// 进度悬浮条手势总开关
+  final bool progressGesturesEnabled;
+
+  /// 左滑动作
+  final ProgressGestureAction progressGestureSwipeLeft;
+
+  /// 右滑动作
+  final ProgressGestureAction progressGestureSwipeRight;
+
+  /// 上滑动作
+  final ProgressGestureAction progressGestureSwipeUp;
+
+  /// 长按菜单候选功能（按顺序展示在半圆菜单中）
+  final List<ProgressGestureAction> progressGestureMenuActions;
+
   AppPreferences({
     required this.autoPanguSpacing,
     required this.displayPanguSpacing,
@@ -173,6 +230,11 @@ class AppPreferences {
     required this.bottomDoubleTapAction,
     required this.bottomNavIds,
     this.displayModeRefreshRate = 0,
+    this.progressGesturesEnabled = true,
+    this.progressGestureSwipeLeft = ProgressGestureAction.nextPost,
+    this.progressGestureSwipeRight = ProgressGestureAction.previousPost,
+    this.progressGestureSwipeUp = ProgressGestureAction.jumpToUnread,
+    this.progressGestureMenuActions = _defaultProgressGestureMenu,
   });
 
   AppPreferences copyWith({
@@ -209,6 +271,11 @@ class AppPreferences {
     NavTapAction? bottomDoubleTapAction,
     List<String>? bottomNavIds,
     int? displayModeRefreshRate,
+    bool? progressGesturesEnabled,
+    ProgressGestureAction? progressGestureSwipeLeft,
+    ProgressGestureAction? progressGestureSwipeRight,
+    ProgressGestureAction? progressGestureSwipeUp,
+    List<ProgressGestureAction>? progressGestureMenuActions,
   }) {
     return AppPreferences(
       autoPanguSpacing: autoPanguSpacing ?? this.autoPanguSpacing,
@@ -251,6 +318,16 @@ class AppPreferences {
       bottomNavIds: bottomNavIds ?? this.bottomNavIds,
       displayModeRefreshRate:
           displayModeRefreshRate ?? this.displayModeRefreshRate,
+      progressGesturesEnabled:
+          progressGesturesEnabled ?? this.progressGesturesEnabled,
+      progressGestureSwipeLeft:
+          progressGestureSwipeLeft ?? this.progressGestureSwipeLeft,
+      progressGestureSwipeRight:
+          progressGestureSwipeRight ?? this.progressGestureSwipeRight,
+      progressGestureSwipeUp:
+          progressGestureSwipeUp ?? this.progressGestureSwipeUp,
+      progressGestureMenuActions:
+          progressGestureMenuActions ?? this.progressGestureMenuActions,
     );
   }
 }
@@ -295,6 +372,16 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
   static const String _bottomNavIdsKey = 'pref_bottom_nav_ids';
   static const String _displayModeRefreshRateKey =
       'pref_display_mode_refresh_rate';
+  static const String _progressGesturesEnabledKey =
+      'pref_progress_gestures_enabled';
+  static const String _progressGestureSwipeLeftKey =
+      'pref_progress_gesture_swipe_left';
+  static const String _progressGestureSwipeRightKey =
+      'pref_progress_gesture_swipe_right';
+  static const String _progressGestureSwipeUpKey =
+      'pref_progress_gesture_swipe_up';
+  static const String _progressGestureMenuActionsKey =
+      'pref_progress_gesture_menu_actions';
 
   static const _crashlyticsChannel = MethodChannel(
     'com.github.lingyan000.fluxdo/crashlytics',
@@ -353,6 +440,23 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
               const [NavEntryIds.home, NavEntryIds.profile],
           displayModeRefreshRate:
               _prefs.getInt(_displayModeRefreshRateKey) ?? 0,
+          progressGesturesEnabled:
+              _prefs.getBool(_progressGesturesEnabledKey) ?? true,
+          progressGestureSwipeLeft: _readGestureAction(
+            _prefs.getString(_progressGestureSwipeLeftKey),
+            ProgressGestureAction.nextPost,
+          ),
+          progressGestureSwipeRight: _readGestureAction(
+            _prefs.getString(_progressGestureSwipeRightKey),
+            ProgressGestureAction.previousPost,
+          ),
+          progressGestureSwipeUp: _readGestureAction(
+            _prefs.getString(_progressGestureSwipeUpKey),
+            ProgressGestureAction.jumpToUnread,
+          ),
+          progressGestureMenuActions: _readGestureMenuActions(
+            _prefs.getStringList(_progressGestureMenuActionsKey),
+          ),
         ),
       ) {
     isPortraitLocked = state.portraitLock;
@@ -569,6 +673,53 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
     await _prefs.setInt(_displayModeRefreshRateKey, rate);
   }
 
+  Future<void> setProgressGesturesEnabled(bool enabled) async {
+    if (state.progressGesturesEnabled == enabled) return;
+    state = state.copyWith(progressGesturesEnabled: enabled);
+    await _prefs.setBool(_progressGesturesEnabledKey, enabled);
+  }
+
+  Future<void> setProgressGestureSwipeLeft(ProgressGestureAction action) async {
+    if (state.progressGestureSwipeLeft == action) return;
+    state = state.copyWith(progressGestureSwipeLeft: action);
+    await _prefs.setString(_progressGestureSwipeLeftKey, action.name);
+  }
+
+  Future<void> setProgressGestureSwipeRight(
+    ProgressGestureAction action,
+  ) async {
+    if (state.progressGestureSwipeRight == action) return;
+    state = state.copyWith(progressGestureSwipeRight: action);
+    await _prefs.setString(_progressGestureSwipeRightKey, action.name);
+  }
+
+  Future<void> setProgressGestureSwipeUp(ProgressGestureAction action) async {
+    if (state.progressGestureSwipeUp == action) return;
+    state = state.copyWith(progressGestureSwipeUp: action);
+    await _prefs.setString(_progressGestureSwipeUpKey, action.name);
+  }
+
+  Future<void> setProgressGestureMenuActions(
+    List<ProgressGestureAction> actions,
+  ) async {
+    final deduped = <ProgressGestureAction>[];
+    for (final a in actions) {
+      if (!deduped.contains(a)) deduped.add(a);
+      if (deduped.length >= kProgressGestureMenuMax) break;
+    }
+    if (const ListEquality<ProgressGestureAction>().equals(
+      state.progressGestureMenuActions,
+      deduped,
+    )) {
+      return;
+    }
+    state = state.copyWith(progressGestureMenuActions: deduped);
+    await _prefs.setStringList(
+      _progressGestureMenuActionsKey,
+      deduped.map((e) => e.name).toList(),
+    );
+  }
+
   void _syncSchedulerConfig() {
     RequestSchedulerConfig.maxConcurrent = state.maxConcurrent;
     RequestSchedulerConfig.maxPerWindow = state.maxPerWindow;
@@ -595,3 +746,29 @@ final preferencesProvider =
       final prefs = ref.watch(sharedPreferencesProvider);
       return PreferencesNotifier(prefs);
     });
+
+ProgressGestureAction _readGestureAction(
+  String? raw,
+  ProgressGestureAction fallback,
+) {
+  if (raw == null) return fallback;
+  for (final a in ProgressGestureAction.values) {
+    if (a.name == raw) return a;
+  }
+  return fallback;
+}
+
+List<ProgressGestureAction> _readGestureMenuActions(List<String>? raw) {
+  if (raw == null) return _defaultProgressGestureMenu;
+  final out = <ProgressGestureAction>[];
+  for (final name in raw) {
+    for (final a in ProgressGestureAction.values) {
+      if (a.name == name && !out.contains(a)) {
+        out.add(a);
+        break;
+      }
+    }
+    if (out.length >= kProgressGestureMenuMax) break;
+  }
+  return out;
+}
