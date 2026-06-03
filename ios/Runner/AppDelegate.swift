@@ -152,6 +152,17 @@ import workmanager_apple
         name: "com.fluxdo/raw_cookie",
         binaryMessenger: controller.binaryMessenger
       )
+
+      // Cookie store 变化观察通道 (Phase B)
+      // 注册 WKHTTPCookieStoreObserver, WV 网络层等外部修改 cookie 时
+      // 通知 Dart 端 sweep。internalWriteCount > 0 时 observer 忽略,
+      // 避免我们自己 setCookie/delete 导致 sweep 循环。
+      let cookieObserverChannel = FlutterMethodChannel(
+        name: "com.fluxdo/cookie_observer",
+        binaryMessenger: controller.binaryMessenger
+      )
+      CookieStoreObserverHandler.shared.attach(channel: cookieObserverChannel)
+
       rawCookieChannel.setMethodCallHandler { (call, result) in
         switch call.method {
         case "setRawCookie":
@@ -170,9 +181,11 @@ import workmanager_apple
           }
           // 同时写入 HTTPCookieStorage.shared，配合 sharedCookiesEnabled
           // 确保 WKWebView 在创建时即可从 shared storage 读取到 cookie
+          CookieStoreObserverHandler.shared.beginInternalWrite()
           HTTPCookieStorage.shared.setCookie(cookie)
           let store = WKWebsiteDataStore.default().httpCookieStore
           store.setCookie(cookie) {
+            CookieStoreObserverHandler.shared.endInternalWrite()
             result(true)
           }
 
@@ -434,6 +447,7 @@ import workmanager_apple
         return domainMatch && pathMatch
       }
 
+      CookieStoreObserverHandler.shared.beginInternalWrite()
       let group = DispatchGroup()
       let countLock = NSLock()
       var deletedCount = 0
@@ -463,6 +477,7 @@ import workmanager_apple
       }
 
       group.notify(queue: .main) {
+        CookieStoreObserverHandler.shared.endInternalWrite()
         result(deletedCount)
       }
     }
@@ -490,6 +505,7 @@ import workmanager_apple
         return
       }
 
+      CookieStoreObserverHandler.shared.beginInternalWrite()
       let group = DispatchGroup()
       group.enter()
       store.delete(cookie) {
@@ -508,6 +524,7 @@ import workmanager_apple
       }
 
       group.notify(queue: .main) {
+        CookieStoreObserverHandler.shared.endInternalWrite()
         result(true)
       }
     }
@@ -674,6 +691,58 @@ import workmanager_apple
           self.window?.rootViewController?.presentedViewController?.dismiss(animated: true)
         }
       }
+    }
+  }
+}
+
+// MARK: - Cookie Store Observer (v0.4.0 Phase B)
+//
+// 与 macOS MainFlutterWindow.swift 中同名类实现对称。
+// 注册 WKHTTPCookieStoreObserver 监听 WV 网络层 cookie 变化,
+// 通过 channel `com.fluxdo/cookie_observer` 通知 Dart sweep。
+//
+// 防重入: 我们自己 setCookie/nukeAllVariants/deleteExactCookie 时,
+// internalWriteCount > 0, observer 看到事件就忽略,
+// 避免 setCookie → cookiesDidChange → sweep → setCookie 死循环。
+class CookieStoreObserverHandler: NSObject, WKHTTPCookieStoreObserver {
+  static let shared = CookieStoreObserverHandler()
+
+  private var channel: FlutterMethodChannel?
+  private let lock = NSLock()
+  private var internalWriteCount = 0
+  private var attached = false
+
+  func attach(channel: FlutterMethodChannel) {
+    self.channel = channel
+    if attached { return }
+    attached = true
+    DispatchQueue.main.async {
+      let store = WKWebsiteDataStore.default().httpCookieStore
+      store.add(self)
+    }
+  }
+
+  func beginInternalWrite() {
+    lock.lock()
+    internalWriteCount += 1
+    lock.unlock()
+  }
+
+  func endInternalWrite() {
+    lock.lock()
+    internalWriteCount = max(0, internalWriteCount - 1)
+    lock.unlock()
+  }
+
+  // WKHTTPCookieStoreObserver
+  func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+    lock.lock()
+    let isInternal = internalWriteCount > 0
+    lock.unlock()
+    if isInternal { return }
+
+    DispatchQueue.main.async { [weak self] in
+      self?.channel?.invokeMethod("onCookiesChanged", arguments: nil)
     }
   }
 }

@@ -504,14 +504,12 @@ class AppCookieManager extends Interceptor {
 
     final cookiesToSaveToJar = <Cookie>[];
     final headersToSaveToJar = <String>[];
-    final criticalCookiesForSweep = <Cookie>[];
     for (var i = 0; i < filteredCookies.length; i++) {
       final cookie = filteredCookies[i];
       final isCritical = criticalNames.contains(cookie.name);
-      if (isCritical) {
-        criticalCookiesForSweep.add(cookie);
-      }
-      // 路径 B 时跳过 critical cookies 的 jar 写入 (sweep 反向同步)
+      // 路径 B 时跳过 critical cookies 的 jar 写入 (boundary_sync 反向同步)
+      // 注: 这里仍按 critical 判断 — boundary_sync_service 也是按
+      // critical 集合做 WV→jar 同步,两者必须配对。
       if (isPathB && isCritical) continue;
       cookiesToSaveToJar.add(cookie);
       headersToSaveToJar.add(filteredSetCookieHeaders[i]);
@@ -538,12 +536,13 @@ class AppCookieManager extends Interceptor {
       );
     }
 
-    // 对每条 critical cookie 同步触发 sweep:
+    // 对响应里 *所有* cookie 触发 sweep (不再按 critical 过滤):
     // - 路径 A: sweep 内部从 jar 读 winner 写 WV (保证两端一致)
     // - 路径 B: sweep 内部从 WV 读 winner 反向写 jar (WV 已自写)
-    // 同步等所有 sweep 完成,保证 next handler 时两端一致
-    if (criticalCookiesForSweep.isNotEmpty) {
-      final sweepFutures = criticalCookiesForSweep.map((cookie) {
+    // 全量 sweep 是为了不漏掉新业务 cookie (如 LDC/CDK 等)。
+    // 同步等所有 sweep 完成,保证 next handler 时两端一致。
+    if (filteredCookies.isNotEmpty) {
+      final sweepFutures = filteredCookies.map((cookie) {
         return SessionCookieSentinel.instance.sweep(
           resolvedUri.toString(),
           cookie.name,

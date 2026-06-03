@@ -27,6 +27,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'services/network/cookie/csrf_token_service.dart';
 import 'services/network/cookie/cookie_devtools_extension.dart';
 import 'services/network/cookie/cookie_jar_service.dart';
+import 'services/network/cookie/cookie_store_observer.dart';
 import 'services/network/cookie/webview_cookie_priming.dart';
 import 'services/network/adapters/cronet_fallback_service.dart';
 import 'services/local_notification_service.dart';
@@ -165,6 +166,11 @@ Future<void> main() async {
   // v0.4.0: 注册 Cookie 引擎 DevTools service extensions (仅 debug/profile 模式)
   // 设计依据: docs/cookie-sync-design-v0.4.0.md §11.4
   CookieDevtoolsExtension.instance.register();
+
+  // v0.4.0 Phase B: 启动 WV cookie store 外部变化观察
+  // Apple 平台依赖 native WKHTTPCookieStoreObserver 自动触发,
+  // Android 由 WV onLoadStop 等 hook 主动调 notifyExternalChange()。
+  CookieStoreObserver.instance.attach();
 
   // 桌面平台：恢复窗口状态后再显示，避免默认位置闪烁
   if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {

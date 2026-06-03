@@ -30,15 +30,31 @@ class CookieJarService {
   bool _initialized = false;
   late final PlatformCookieStrategy _strategy;
 
-  /// 可配置的关键 cookie 名集合
+  /// Discourse 论坛登录 session(仅 _t / _forum_session)。
+  /// 这些是 Discourse 内核约定的 cookie 名,
+  /// 用于 boundary_sync_service / webview_login_page / 诊断接口的
+  /// "Discourse 登录态"判断, 不应混入其他业务 cookie。
   static const Set<String> sessionCookieNames = {
     '_t',
     '_forum_session',
   };
 
+  /// WV 必须保持与 jar 同步的关键 cookie 集合。
+  ///
+  /// 用于 Priming 重灌 / Sentinel sweep / 反向同步等核心同步路径。
+  /// 添加新 cookie 前需评估:
+  /// - 该 cookie 是否影响 WV 中用户登录态 / 业务页面渲染
+  /// - 该 cookie 是否会出现在主站 (linux.do) 响应中
+  ///
+  /// 当前条目:
+  /// - sessionCookieNames: Discourse 论坛登录
+  /// - cf_clearance: Cloudflare 反爬虫挑战 token
+  /// - linux_do_credit_session_id: LDC 应用 session,主站会读它来显示
+  ///   LDC 积分/绑定状态, WV 缺失会导致 LDC 相关 UI 失效
   static Set<String> criticalCookieNames = {
     ...sessionCookieNames,
     'cf_clearance',
+    'linux_do_credit_session_id',
   };
 
   CookieManager get webViewCookieManager =>
