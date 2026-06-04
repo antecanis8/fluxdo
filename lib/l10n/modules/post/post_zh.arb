@@ -182,6 +182,15 @@
   "post_unacceptSolution": "取消采纳",
   "post_unsolved": "待解决",
   "post_viewBestAnswer": "查看最佳答案",
+  "post_solutionsCount": "{count} 解决方案",
+  "@post_solutionsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "post_readMore": "阅读更多",
   "post_viewHiddenInfo": "查看隐藏的信息",
   "post_whisperIndicator": "仅管理员可见",
   "smallAction_archivedDisabled": "取消归档了话题",

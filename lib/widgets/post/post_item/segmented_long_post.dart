@@ -177,7 +177,7 @@ class LongPostFooterSegment extends ConsumerWidget {
   final bool selected;
   final bool highlight;
   final bool topicHasAcceptedAnswer;
-  final int? acceptedAnswerPostNumber;
+  final List<AcceptedAnswer> acceptedAnswers;
   final String? bottomDateSeparatorLabel;
   final void Function({String? initialContent})? onReply;
   final VoidCallback? onEdit;
@@ -199,7 +199,7 @@ class LongPostFooterSegment extends ConsumerWidget {
     required this.highlight,
     this.highlightBoostUsername,
     required this.topicHasAcceptedAnswer,
-    required this.acceptedAnswerPostNumber,
+    this.acceptedAnswers = const [],
     required this.bottomDateSeparatorLabel,
     required this.onReply,
     required this.onEdit,
@@ -261,7 +261,7 @@ class LongPostFooterSegment extends ConsumerWidget {
               post: post,
               topicId: topicId,
               topicHasAcceptedAnswer: topicHasAcceptedAnswer,
-              acceptedAnswerPostNumber: acceptedAnswerPostNumber,
+              acceptedAnswers: acceptedAnswers,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
               highlightBoostUsername: highlightBoostUsername,
               onReply: onReply,

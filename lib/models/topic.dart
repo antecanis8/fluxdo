@@ -1313,6 +1313,72 @@ class PostStream {
   }
 }
 
+/// 单个被采纳答案的展示数据(对齐 Discourse 的 accepted_answers 数组元素)
+///
+/// 字段来源:
+/// - postNumber/username/name/avatarTemplate/excerpt/accepterUsername/accepterName:
+///   discourse-solved 的 `accepted_answers_post_info` 数组元素
+/// - createdAt: 通过 postNumber 反查 PostStream 后填充(后端 payload 不带)
+class AcceptedAnswer {
+  final int postNumber;
+  final String username;
+  final String? name;
+  final String? avatarTemplate;
+  final String? excerpt; // cooked HTML;solved_quote_length=0 时为 null
+  final DateTime? createdAt;
+  final String? accepterUsername;
+  final String? accepterName;
+
+  const AcceptedAnswer({
+    required this.postNumber,
+    required this.username,
+    this.name,
+    this.avatarTemplate,
+    this.excerpt,
+    this.createdAt,
+    this.accepterUsername,
+    this.accepterName,
+  });
+
+  /// 用于从 PostStream 中的 Post 反查并构造一个 AcceptedAnswer
+  /// (本地接受答案后用,后端 payload 来不及返回时的兜底)
+  factory AcceptedAnswer.fromPost(Post post, {String? accepterUsername, String? accepterName}) {
+    return AcceptedAnswer(
+      postNumber: post.postNumber,
+      username: post.username,
+      name: post.name,
+      avatarTemplate: post.avatarTemplate,
+      excerpt: post.cooked,
+      createdAt: post.createdAt,
+      accepterUsername: accepterUsername,
+      accepterName: accepterName,
+    );
+  }
+
+  /// 从 json 解析,可选地用 postStream 反查 createdAt
+  factory AcceptedAnswer.fromJson(
+    Map<String, dynamic> json, {
+    PostStream? postStream,
+  }) {
+    final pn = json['post_number'] as int;
+    DateTime? createdAt;
+    if (postStream != null) {
+      final post = postStream.posts.where((p) => p.postNumber == pn).firstOrNull;
+      createdAt = post?.createdAt;
+    }
+    return AcceptedAnswer(
+      postNumber: pn,
+      username: json['username'] as String? ?? '',
+      name: json['name'] as String?,
+      avatarTemplate: json['avatar_template'] as String?,
+      excerpt: json['excerpt'] as String?,
+      createdAt: createdAt,
+      accepterUsername: json['accepter_username'] as String?,
+      accepterName: json['accepter_name'] as String?,
+    );
+  }
+}
+
 /// 话题详情模型
 class TopicDetail {
   final int id;
@@ -1361,8 +1427,15 @@ class TopicDetail {
   final DateTime? bookmarkReminderAt; // 书签提醒时间
 
   // 已解决问题相关
-  final bool hasAcceptedAnswer; // 话题是否有被接受的答案
-  final int? acceptedAnswerPostNumber; // 被接受答案的帖子编号
+  // 所有被采纳答案的完整数据(单解决方案场景下长度为 0 或 1;
+  // 多解决方案场景下长度可 > 1,对齐 Discourse 的 accepted_answers 数组)
+  final List<AcceptedAnswer> acceptedAnswers;
+
+  bool get hasAcceptedAnswer => acceptedAnswers.isNotEmpty;
+  int? get acceptedAnswerPostNumber =>
+      acceptedAnswers.isEmpty ? null : acceptedAnswers.first.postNumber;
+  List<int> get acceptedAnswerPostNumbers =>
+      acceptedAnswers.map((a) => a.postNumber).toList(growable: false);
 
   /// 是否为私信
   bool get isPrivateMessage => archetype == 'private_message';
@@ -1396,8 +1469,7 @@ class TopicDetail {
     this.bookmarkId,
     this.bookmarkName,
     this.bookmarkReminderAt,
-    this.hasAcceptedAnswer = false,
-    this.acceptedAnswerPostNumber,
+    this.acceptedAnswers = const [],
   });
 
   factory TopicDetail.fromJson(Map<String, dynamic> json) {
@@ -1411,27 +1483,36 @@ class TopicDetail {
             as List<dynamic>?;
     PostStream.injectBadges(postStream.posts, json, rawPosts);
 
-    // 解析 accepted_answer：topic 级别返回的是一个对象 {post_number, username, ...}
+    // 解析已采纳答案。优先级:
+    // 1) 新版字段 accepted_answers 数组(discourse-solved 多解决方案分支)
+    // 2) 旧版字段 accepted_answer 单对象(单解决方案)
+    // 3) has_accepted_answer = true 时,从帖子流中按 acceptedAnswer 反查构造
+    final acceptedAnswersList = json['accepted_answers'];
     final acceptedAnswerData = json['accepted_answer'];
-    int? acceptedAnswerPostNumber;
-    bool hasAcceptedAnswer = false;
+    final acceptedAnswers = <AcceptedAnswer>[];
 
-    if (acceptedAnswerData is Map<String, dynamic>) {
-      // topic 级别的 accepted_answer 是一个对象
-      acceptedAnswerPostNumber = acceptedAnswerData['post_number'] as int?;
-      hasAcceptedAnswer = true;
+    if (acceptedAnswersList is List) {
+      for (final a in acceptedAnswersList) {
+        if (a is Map<String, dynamic> && a['post_number'] is int) {
+          acceptedAnswers.add(AcceptedAnswer.fromJson(a, postStream: postStream));
+        }
+      }
+    } else if (acceptedAnswerData is Map<String, dynamic> &&
+        acceptedAnswerData['post_number'] is int) {
+      acceptedAnswers.add(
+        AcceptedAnswer.fromJson(acceptedAnswerData, postStream: postStream),
+      );
     }
 
-    // 备用方案：如果 topic 级别没有，从帖子的 topic_accepted_answer 或 accepted_answer 字段推断
-    if (!hasAcceptedAnswer) {
-      hasAcceptedAnswer = json['has_accepted_answer'] as bool? ?? false;
+    if (acceptedAnswers.isEmpty &&
+        (json['has_accepted_answer'] as bool? ?? false)) {
+      acceptedAnswers.addAll(
+        postStream.posts
+            .where((p) => p.acceptedAnswer)
+            .map((p) => AcceptedAnswer.fromPost(p)),
+      );
     }
-    if (hasAcceptedAnswer && acceptedAnswerPostNumber == null) {
-      final acceptedPost = postStream.posts
-          .where((p) => p.acceptedAnswer)
-          .firstOrNull;
-      acceptedAnswerPostNumber = acceptedPost?.postNumber;
-    }
+    acceptedAnswers.sort((a, b) => a.postNumber.compareTo(b.postNumber));
 
     // 解析书签数组：分别提取话题书签和帖子书签
     bool topicBookmarked = false;
@@ -1557,8 +1638,7 @@ class TopicDetail {
       bookmarkId: topicBookmarkId,
       bookmarkName: topicBookmarkName,
       bookmarkReminderAt: topicBookmarkReminderAt,
-      hasAcceptedAnswer: hasAcceptedAnswer,
-      acceptedAnswerPostNumber: acceptedAnswerPostNumber,
+      acceptedAnswers: acceptedAnswers,
     );
   }
 
@@ -1595,8 +1675,7 @@ class TopicDetail {
     DateTime? bookmarkReminderAt,
     bool clearBookmarkName = false,
     bool clearBookmarkReminderAt = false,
-    bool? hasAcceptedAnswer,
-    int? acceptedAnswerPostNumber,
+    List<AcceptedAnswer>? acceptedAnswers,
   }) {
     return TopicDetail(
       id: id ?? this.id,
@@ -1631,9 +1710,7 @@ class TopicDetail {
       bookmarkReminderAt: clearBookmarkReminderAt
           ? null
           : (bookmarkReminderAt ?? this.bookmarkReminderAt),
-      hasAcceptedAnswer: hasAcceptedAnswer ?? this.hasAcceptedAnswer,
-      acceptedAnswerPostNumber:
-          acceptedAnswerPostNumber ?? this.acceptedAnswerPostNumber,
+      acceptedAnswers: acceptedAnswers ?? this.acceptedAnswers,
     );
   }
 }

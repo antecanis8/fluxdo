@@ -109,6 +109,15 @@
   "post_unacceptSolution": "Unaccept solution",
   "post_unsolved": "Unsolved",
   "post_viewBestAnswer": "View best answer",
+  "post_solutionsCount": "{count} solutions",
+  "@post_solutionsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "post_readMore": "Read more",
   "post_viewHiddenInfo": "View hidden info",
   "post_whisperIndicator": "Staff only",
   "smallAction_archivedDisabled": "Unarchived the topic",

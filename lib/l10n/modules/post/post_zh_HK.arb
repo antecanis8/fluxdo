@@ -134,6 +134,15 @@
   "post_unacceptSolution": "取消採納",
   "post_unsolved": "待解決",
   "post_viewBestAnswer": "查看最佳答案",
+  "post_solutionsCount": "{count} 解決方案",
+  "@post_solutionsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "post_readMore": "閱讀更多",
   "post_viewHiddenInfo": "查看隱藏的信息",
   "post_whisperIndicator": "僅管理員可見",
   "smallAction_archivedDisabled": "取消歸檔了話題",

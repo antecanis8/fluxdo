@@ -130,9 +130,16 @@ extension PostUpdateMethods on TopicDetailNotifier {
   }
 
   /// 更新帖子的解决方案状态
+  ///
+  /// 单解决方案模式(`solved_allow_multiple_solutions=false`):接受新答案时清空其他;
+  /// 多解决方案模式:仅切换当前 post,其他保留。
   void updatePostSolution(int postId, bool accepted) {
     final currentDetail = state.value;
     if (currentDetail == null) return;
+
+    final allowMultiple = PreloadedDataService()
+            .siteSettingsSync?['solved_allow_multiple_solutions'] ==
+        true;
 
     final currentPosts = currentDetail.postStream.posts;
     final newPosts = currentPosts.map((post) {
@@ -141,7 +148,7 @@ extension PostUpdateMethods on TopicDetailNotifier {
           acceptedAnswer: accepted,
           canUnacceptAnswer: accepted,
         );
-      } else if (accepted && post.acceptedAnswer) {
+      } else if (accepted && !allowMultiple && post.acceptedAnswer) {
         return post.copyWith(
           acceptedAnswer: false,
           canUnacceptAnswer: false,
@@ -150,16 +157,22 @@ extension PostUpdateMethods on TopicDetailNotifier {
       return post;
     }).toList();
 
-    int? acceptedPostNumber;
-    if (accepted) {
-      final acceptedPost = newPosts.firstWhere((p) => p.id == postId);
-      acceptedPostNumber = acceptedPost.postNumber;
-    }
+    // 从 newPosts 中按 acceptedAnswer 反查构造 AcceptedAnswer 列表
+    // (post 自身已包含 username/name/avatarTemplate/cooked/createdAt,
+    //  足以本地渲染 banner,无需等待后端二次拉取)
+    final newAcceptedAnswers = newPosts
+        .where((p) => p.acceptedAnswer)
+        .map((p) => AcceptedAnswer.fromPost(p))
+        .toList()
+      ..sort((a, b) => a.postNumber.compareTo(b.postNumber));
 
     state = AsyncValue.data(currentDetail.copyWith(
-      postStream: PostStream(posts: newPosts, stream: currentDetail.postStream.stream, gaps: currentDetail.postStream.gaps),
-      hasAcceptedAnswer: accepted,
-      acceptedAnswerPostNumber: acceptedPostNumber,
+      postStream: PostStream(
+        posts: newPosts,
+        stream: currentDetail.postStream.stream,
+        gaps: currentDetail.postStream.gaps,
+      ),
+      acceptedAnswers: newAcceptedAnswers,
     ));
   }
 
@@ -411,8 +424,7 @@ extension PostUpdateMethods on TopicDetailNotifier {
         tags: newDetail.tags,
         categoryId: newDetail.categoryId,
         notificationLevel: newDetail.notificationLevel,
-        hasAcceptedAnswer: newDetail.hasAcceptedAnswer,
-        acceptedAnswerPostNumber: newDetail.acceptedAnswerPostNumber,
+        acceptedAnswers: newDetail.acceptedAnswers,
         canEdit: newDetail.canEdit,
         bookmarked: newDetail.bookmarked,
         bookmarkId: newDetail.bookmarkId,

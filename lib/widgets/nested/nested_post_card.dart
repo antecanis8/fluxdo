@@ -551,7 +551,7 @@ class _NestedPostCardState extends ConsumerState<NestedPostCard> {
           post: post,
           topicId: widget.topicId,
           topicHasAcceptedAnswer: widget.detail.hasAcceptedAnswer,
-          acceptedAnswerPostNumber: widget.detail.acceptedAnswerPostNumber,
+          acceptedAnswers: widget.detail.acceptedAnswers,
           padding: const EdgeInsets.only(top: 4),
           onReply: widget.isLoggedIn
               ? ({initialContent}) => widget.onReply(
