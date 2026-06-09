@@ -155,5 +155,11 @@
   "vote_successNoRemaining": "Vote successful, no votes remaining",
   "vote_successRemaining": "Vote successful, {remaining} votes remaining",
   "vote_topicClosed": "Topic closed, cannot vote",
-  "vote_voted": "Voted"
+  "vote_voted": "Voted",
+  "sharedIssue_label": "Me too",
+  "sharedIssue_title": "I am also experiencing this issue",
+  "sharedIssue_authorTitle": "You started this topic",
+  "sharedIssue_marked": "Marked as me too",
+  "sharedIssue_unmarked": "Removed me too",
+  "sharedIssue_rateLimited": "Too many actions, please try again later"
 }

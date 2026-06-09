@@ -1442,6 +1442,24 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
             .clearStatsUpdate();
       }
 
+      // 3.1 "俺也一样" (shared_issue) 计数更新
+      //   - 服务端广播包含 `count` 与 *操作用户的* userCreated
+      //   - 接收端只接受 count；userCreated 不能覆写本地状态(因为对所有订阅者一致)
+      //   - 自己点击的 toggle 响应已直接写入 detail,所以即便回声也只是同值刷新,幂等
+      if (next.sharedIssueUpdate != null &&
+          previous?.sharedIssueUpdate != next.sharedIssueUpdate) {
+        final currentDetail = ref.read(topicDetailProvider(params)).value;
+        if (currentDetail != null) {
+          notifier.updateSharedIssue(
+            next.sharedIssueUpdate!.count,
+            currentDetail.userCreatedSharedIssue,
+          );
+        }
+        ref
+            .read(topicChannelProvider(widget.topicId).notifier)
+            .clearSharedIssueUpdate();
+      }
+
       // 4. 帖子级别更新（created/revised/deleted/liked 等）
       final prevLen = previous?.postUpdates.length ?? 0;
       final nextLen = next.postUpdates.length;
@@ -1948,6 +1966,7 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
           onRefreshPost: _handleRefreshPost,
           onJumpToPost: _scrollToPost,
           onVoteChanged: _handleVoteChanged,
+          onSharedIssueChanged: _handleSharedIssueChanged,
           onNotificationLevelChanged: (level) =>
               _handleNotificationLevelChanged(notifier, level),
           onSolutionChanged: _handleSolutionChanged,
@@ -2006,6 +2025,7 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
                   onShareAsImage: _sharePostAsImage,
                   onRefreshPost: _handleRefreshPost,
                   onVoteChanged: _handleVoteChanged,
+                  onSharedIssueChanged: _handleSharedIssueChanged,
                   onNotificationLevelChanged: (level) =>
                       _handleNotificationLevelChanged(notifier, level),
                   onSolutionChanged: _handleSolutionChanged,

@@ -403,6 +403,13 @@ extension _UserActions on _TopicDetailPageState {
         .updateTopicVote(newVoteCount, userVoted);
   }
 
+  void _handleSharedIssueChanged(int newCount, bool userCreated) {
+    final params = _params;
+    ref
+        .read(topicDetailProvider(params).notifier)
+        .updateSharedIssue(newCount, userCreated);
+  }
+
   void _handleSolutionChanged(int postId, bool accepted) {
     final params = _params;
     ref

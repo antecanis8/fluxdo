@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import '../../models/topic.dart';
 import '../../models/nested_topic.dart';
 import '../../models/topic_vote.dart';
+import '../../models/shared_issue.dart';
 import '../../models/user.dart';
 import '../../models/user_action.dart';
 import '../../models/notification.dart';

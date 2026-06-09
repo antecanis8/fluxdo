@@ -8,6 +8,7 @@ import '../../../utils/responsive.dart';
 import '../../../widgets/nested/nested_post_card.dart';
 import '../../../widgets/post/post_item/post_item.dart';
 import 'topic_detail_header.dart';
+import 'shared_issue_button.dart';
 
 /// 嵌套视图帖子列表 — 在现有 TopicDetailPage 内替换平铺帖子流
 class NestedPostList extends ConsumerStatefulWidget {
@@ -23,6 +24,7 @@ class NestedPostList extends ConsumerStatefulWidget {
   final void Function(int postId) onRefreshPost;
   final void Function(int postNumber) onJumpToPost;
   final void Function(int, bool) onVoteChanged;
+  final void Function(int count, bool userCreated)? onSharedIssueChanged;
   final void Function(TopicNotificationLevel)? onNotificationLevelChanged;
   final void Function(int postId, bool accepted)? onSolutionChanged;
   final bool Function(ScrollNotification) onScrollNotification;
@@ -45,6 +47,7 @@ class NestedPostList extends ConsumerStatefulWidget {
     required this.onRefreshPost,
     required this.onJumpToPost,
     required this.onVoteChanged,
+    this.onSharedIssueChanged,
     this.onNotificationLevelChanged,
     this.onSolutionChanged,
     required this.onScrollNotification,
@@ -149,6 +152,12 @@ class _NestedPostListState extends ConsumerState<NestedPostList> {
                 onJumpToPost: widget.onJumpToPost,
                 onSolutionChanged: widget.onSolutionChanged,
                 hideRepliesButton: true,
+                opTopSlot: widget.detail.sharedIssueVisible
+                    ? SharedIssueButton(
+                        topic: widget.detail,
+                        onChanged: widget.onSharedIssueChanged,
+                      )
+                    : null,
               ),
             ),
 

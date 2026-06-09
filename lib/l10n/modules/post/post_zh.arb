@@ -235,5 +235,11 @@
     }
   },
   "vote_topicClosed": "话题已关闭，无法投票",
-  "vote_voted": "已投票"
+  "vote_voted": "已投票",
+  "sharedIssue_label": "俺也一样",
+  "sharedIssue_title": "我也遇到了这个问题",
+  "sharedIssue_authorTitle": "这是你创建的话题",
+  "sharedIssue_marked": "已标记俺也一样",
+  "sharedIssue_unmarked": "已取消俺也一样",
+  "sharedIssue_rateLimited": "操作过于频繁，请稍后再试"
 }

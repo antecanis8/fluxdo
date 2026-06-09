@@ -41,6 +41,8 @@ class PostItem extends ConsumerStatefulWidget {
   final VoidCallback? onShowPostDetail;
   final bool hideRepliesButton;
   final String? highlightBoostUsername;
+  /// OP 帖专属插槽: 仅在 postNumber == 1 时生效, 透传给 PostFooterSection
+  final Widget? opTopSlot;
 
   const PostItem({
     super.key,
@@ -69,6 +71,7 @@ class PostItem extends ConsumerStatefulWidget {
     this.isPrivateMessageTopic = false,
     this.onShowPostDetail,
     this.hideRepliesButton = false,
+    this.opTopSlot,
   });
 
   @override
@@ -296,6 +299,7 @@ class _PostItemState extends ConsumerState<PostItem> {
                 isPrivateMessageTopic: widget.isPrivateMessageTopic,
                 onShowPostDetail: widget.onShowPostDetail,
                 hideRepliesButton: widget.hideRepliesButton,
+                opTopSlot: widget.opTopSlot,
                 onAcceptedAnswerChanged: (accepted) {
                   if (!mounted) return;
                   setState(() {

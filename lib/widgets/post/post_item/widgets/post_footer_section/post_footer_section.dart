@@ -66,6 +66,10 @@ class PostFooterSection extends ConsumerStatefulWidget {
   /// 高亮指定用户的 boost（从 boost 通知跳转时使用）
   final String? highlightBoostUsername;
 
+  /// OP 帖专属插槽: 仅在 postNumber == 1 时渲染, 位于 SolutionBanner 与 ActionBar 之间
+  /// 当前用于 "俺也一样" 按钮; 其他 post 传 null
+  final Widget? opTopSlot;
+
   const PostFooterSection({
     super.key,
     required this.post,
@@ -88,6 +92,7 @@ class PostFooterSection extends ConsumerStatefulWidget {
     this.postDetailLabel,
     this.onBoostUpdated,
     this.highlightBoostUsername,
+    this.opTopSlot,
   });
 
   @override
@@ -306,6 +311,13 @@ class _PostFooterSectionState extends ConsumerState<PostFooterSection> {
               acceptedAnswers: widget.acceptedAnswers,
               onJumpToPost: widget.onJumpToPost,
             ),
+          if (widget.post.postNumber == 1 && widget.opTopSlot != null) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: widget.opTopSlot,
+            ),
+          ],
           const SizedBox(height: 12),
           PostActionBar(
             post: widget.post,

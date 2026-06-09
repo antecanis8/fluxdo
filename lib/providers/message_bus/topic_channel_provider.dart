@@ -176,6 +176,22 @@ class TopicChannelNotifier extends Notifier<TopicChannelState> {
           }
           break;
 
+        case 'shared_issue':
+          // discourse-solved 的 "俺也一样" 推送。
+          // 注意: 服务端广播的 user_created_shared_issue 是 *操作用户* 的最新状态,
+          // 对所有订阅者一视同仁,因此接收端不能用它覆写本地 userCreated 状态,
+          // 只用 count 更新计数即可。本地 userCreated 状态由点击响应直接维护。
+          final sharedCount = data['count'] as int?;
+          if (sharedCount != null) {
+            state = state.copyWith(
+              sharedIssueUpdate: SharedIssueUpdate(
+                count: sharedCount,
+                userCreated: data['user_created_shared_issue'] as bool? ?? false,
+              ),
+            );
+          }
+          break;
+
         default:
           debugPrint('[TopicChannel] 未知消息类型: $type');
       }
@@ -360,6 +376,10 @@ class TopicChannelNotifier extends Notifier<TopicChannelState> {
   
   void clearStatsUpdate() {
     state = state.copyWith(clearStatsUpdate: true);
+  }
+
+  void clearSharedIssueUpdate() {
+    state = state.copyWith(clearSharedIssueUpdate: true);
   }
   
   void clearTypingUsers() {

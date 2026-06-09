@@ -187,5 +187,11 @@
     }
   },
   "vote_topicClosed": "話題已關閉，無法投票",
-  "vote_voted": "已投票"
+  "vote_voted": "已投票",
+  "sharedIssue_label": "我也是",
+  "sharedIssue_title": "我也遇到這個問題",
+  "sharedIssue_authorTitle": "這是你建立的話題",
+  "sharedIssue_marked": "已標記我也是",
+  "sharedIssue_unmarked": "已取消我也是",
+  "sharedIssue_rateLimited": "操作過於頻繁，請稍後再試"
 }

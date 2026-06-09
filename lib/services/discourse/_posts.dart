@@ -356,6 +356,23 @@ mixin _PostsMixin on _DiscourseServiceBase {
     }
   }
 
+  /// 切换 "俺也一样" (shared_issue) 状态
+  ///
+  /// 同一接口 toggle: 已存在则取消，不存在则创建。
+  /// 服务端限流 5 次/小时/用户/帖子，触发后抛 429。
+  Future<SharedIssueResponse> toggleSharedIssue(int topicId) async {
+    try {
+      final response = await _dio.post(
+        '/solution/shared_issue',
+        data: {'topic_id': topicId},
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      );
+      return SharedIssueResponse.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      _throwApiError(e);
+    }
+  }
+
   /// 删除帖子
   Future<void> deletePost(int postId) async {
     try {

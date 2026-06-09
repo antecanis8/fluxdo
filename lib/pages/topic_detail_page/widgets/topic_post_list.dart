@@ -15,6 +15,7 @@ import '../../../widgets/post/post_item/quote_selection_helper.dart';
 import '../../../widgets/post/post_item/segmented_long_post.dart';
 import '../../../widgets/post/post_item_skeleton.dart';
 import 'topic_detail_header.dart';
+import 'shared_issue_button.dart';
 import 'typing_indicator.dart';
 
 /// 话题帖子列表
@@ -56,6 +57,7 @@ class TopicPostList extends StatefulWidget {
   final void Function(Post post)? onShareAsImage;
   final void Function(int postId) onRefreshPost;
   final void Function(int, bool) onVoteChanged;
+  final void Function(int count, bool userCreated)? onSharedIssueChanged;
   final void Function(TopicNotificationLevel)? onNotificationLevelChanged;
   final void Function(int postId, bool accepted)? onSolutionChanged;
   final void Function(String selectedText, Post post)? onQuoteSelection;
@@ -115,6 +117,7 @@ class TopicPostList extends StatefulWidget {
     this.onShareAsImage,
     required this.onRefreshPost,
     required this.onVoteChanged,
+    this.onSharedIssueChanged,
     this.onNotificationLevelChanged,
     this.onSolutionChanged,
     this.onQuoteSelection,
@@ -182,6 +185,8 @@ class _TopicPostListState extends State<TopicPostList> {
   void Function(Post post)? get onShareAsImage => widget.onShareAsImage;
   void Function(int postId) get onRefreshPost => widget.onRefreshPost;
   void Function(int, bool) get onVoteChanged => widget.onVoteChanged;
+  void Function(int count, bool userCreated)? get onSharedIssueChanged =>
+      widget.onSharedIssueChanged;
   void Function(TopicNotificationLevel)? get onNotificationLevelChanged =>
       widget.onNotificationLevelChanged;
   void Function(int postId, bool accepted)? get onSolutionChanged =>
@@ -706,6 +711,10 @@ class _TopicPostListState extends State<TopicPostList> {
         (post.boosts ?? []).any((b) => b.user.username == boostUsername);
     final highlight = isTargetPost && !canLocateBoost;
     final replyTarget = post.postNumber == 1 ? null : post;
+    // OP 帖底部的 "俺也一样" 按钮; 非 OP 或服务端没启用时为 null
+    final Widget? opSlot = (post.postNumber == 1 && detail.sharedIssueVisible)
+        ? SharedIssueButton(topic: detail, onChanged: onSharedIssueChanged)
+        : null;
     final Widget child;
 
     switch (segment.type) {
@@ -742,6 +751,7 @@ class _TopicPostListState extends State<TopicPostList> {
           onShowPostDetail: widget.onShowPostDetail != null
               ? () => widget.onShowPostDetail!(post)
               : null,
+          opTopSlot: opSlot,
         );
         break;
       case _PostRenderSegmentType.longHeader:
@@ -794,6 +804,7 @@ class _TopicPostListState extends State<TopicPostList> {
           onShowPostDetail: widget.onShowPostDetail != null
               ? () => widget.onShowPostDetail!(post)
               : null,
+          opTopSlot: opSlot,
         );
         break;
       case _PostRenderSegmentType.gapBefore:

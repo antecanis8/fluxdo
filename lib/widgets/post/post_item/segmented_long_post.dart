@@ -190,6 +190,8 @@ class LongPostFooterSegment extends ConsumerWidget {
   final bool isPrivateMessageTopic;
   final VoidCallback? onShowPostDetail;
   final String? highlightBoostUsername;
+  /// OP 帖专属插槽: 仅在 postNumber == 1 时透传给 PostFooterSection
+  final Widget? opTopSlot;
 
   const LongPostFooterSegment({
     super.key,
@@ -211,6 +213,7 @@ class LongPostFooterSegment extends ConsumerWidget {
     this.topicTitle,
     this.isPrivateMessageTopic = false,
     this.onShowPostDetail,
+    this.opTopSlot,
   });
 
   @override
@@ -274,6 +277,7 @@ class LongPostFooterSegment extends ConsumerWidget {
               topicTitle: topicTitle,
               isPrivateMessageTopic: isPrivateMessageTopic,
               onShowPostDetail: onShowPostDetail,
+              opTopSlot: opTopSlot,
             ),
           ),
         ],
