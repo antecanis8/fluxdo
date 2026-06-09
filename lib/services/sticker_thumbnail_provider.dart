@@ -469,12 +469,8 @@ Future<ui.Image> _decodeFirstFrameImage({
 
 /// 解第一帧。按**实际 magic bytes** dispatch backend:
 ///
-/// - **AVIF**(magic ftyp/avif/avis/mif1/msf1):**先试 Flutter Skia 内置
-///   codec**(`ui.instantiateImageCodecFromBuffer`)— iOS 16.4+ /
-///   Android 13+ Skia 已内置 AVIF 静态解码,**跟浏览器走同一条 path**:
-///   完全在 Flutter engine platform thread 内,不经 method channel marshal,
-///   也无主 isolate RGBA 反序列化。如果 Skia 不支持(老系统或 AVIF profile
-///   不识别) → fallback flutter_avif(libavif + dav1d C 库)。
+/// - **AVIF**(magic ftyp/avif/avis/mif1/msf1):走 `flutter_avif`(libavif + dav1d,
+///   C 实现,工业标准稳定)。不进 native_animated_image 的 Rust pipeline。
 ///
 /// - **GIF / animated WebP / APNG**:走 [_DecoderWorkerPool](long-lived worker
 ///   isolate),解码在 background isolate 串行,**主线程零 spawn 开销**。
@@ -499,18 +495,7 @@ Future<ui.Image> _decodeFirstFrame(String url, Uint8List bytes) async {
   return _rgbaToUiImage(reply.rgba!, reply.width, reply.height);
 }
 
-/// AVIF 解码两级 fallback:
-/// 1. Flutter Skia 内置 codec(`instantiateImageCodecFromBuffer`)
-///    — 浏览器同款 decoder,Flutter engine 内部跑,无 method channel marshal
-///    — Android 13+ / iOS 16.4+ 的 Flutter Skia 应该支持 AVIF 静态
-/// 2. 失败 → flutter_avif.decodeAvif(libavif + dav1d,method channel 路径)
 Future<ui.Image> _decodeAvifFirstFrame(Uint8List bytes, String url) async {
-  // 试 Skia 内置(快路径)
-  try {
-    return await _decodeFirstFrameViaFlutterCodec(bytes);
-  } catch (_) {
-    // Skia 不识别 → 走 flutter_avif 慢路径
-  }
   final frames = await fa.decodeAvif(bytes);
   if (frames.isEmpty) throw StateError('flutter_avif 0 frames: $url');
   final first = frames.first.image;
