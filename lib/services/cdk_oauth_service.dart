@@ -27,10 +27,16 @@ class CdkOAuthService {
   }
 
   Future<void> callback(String code, String state) async {
+    // X-Requested-With: XMLHttpRequest 是 cdk.linux.do CSRF 校验的唯一依据,
+    // 缺这个头服务端直接 403 "CSRF 验证失败"。
+    // 实测最小集 = cookie + UA + content-type + X-Requested-With。
     await _dio.post(
       '$baseUrl/api/v1/oauth/callback',
       data: {'code': code, 'state': state},
-      options: Options(extra: {'skipCsrf': true}),
+      options: Options(
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+        extra: {'skipCsrf': true},
+      ),
     );
   }
 
@@ -89,9 +95,7 @@ class CdkOAuthService {
     try {
       response = await _dio.get(
         authUrl,
-        options: OAuthFlowHelper.buildNavigationOptions(
-          referer: '$baseUrl/',
-          crossSite: true,
+        options: Options(
           followRedirects: false,
           validateStatus: (status) => status != null && status < 500,
           extra: {'skipCsrf': true, 'allowRedirectSetCookie': true},
@@ -119,9 +123,7 @@ class CdkOAuthService {
 
           final approveResponse = await _dio.get(
             'https://connect.linux.do$approveLink',
-            options: OAuthFlowHelper.buildNavigationOptions(
-              referer: authUrl,
-              crossSite: false,
+            options: Options(
               followRedirects: false,
               validateStatus: (status) => status != null && status < 500,
               extra: {
