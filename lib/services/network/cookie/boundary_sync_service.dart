@@ -140,9 +140,14 @@ class BoundarySyncService {
               'valueLength': value.length,
             });
           }
-        } else if (rawDomain != null && rawDomain.isNotEmpty) {
-          // 新设备：平台返回了 domain，直接使用
+        } else if (rawDomain != null && rawDomain.startsWith('.')) {
+          // 浏览器约定: 前导点表示真 domain cookie(原始 Set-Cookie 带 Domain=)
           domain = rawDomain;
+        } else if (rawDomain != null && rawDomain.isNotEmpty) {
+          // 无前导点表示 host-only(WebView 回读时对 host-only cookie
+          // 会回填裸 host 到 domain 字段, 这里必须当 host-only 处理,
+          // 否则 _t 等会话 cookie 会被写成 domain cookie 挂到子域名上)
+          domain = null;
         } else if (isSessionCookie) {
           // 会话 Cookie 缺失 domain 时，保持 host-only 语义，不再放大到子域名。
           domain = null;

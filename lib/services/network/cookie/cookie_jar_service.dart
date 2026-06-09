@@ -101,6 +101,54 @@ class CookieJarService {
       _initialized = true;
       _strategy = PlatformCookieStrategy.create();
     }
+
+    await _migrateSessionCookiesToHostOnly();
+  }
+
+  /// 历史脏数据迁移: 把 sessionCookieNames 里被错误存为 domain cookie
+  /// 的 _t / _forum_session 改回 host-only。
+  ///
+  /// 触发原因: 早期版本 boundary_sync 把 WebView 回读的裸 host(无前导点)
+  /// 当作 Domain= 直接写入 jar, 导致 _t 等 host-only cookie 变成 domain
+  /// cookie 挂到 connect.linux.do / cdk.linux.do 等子域名上。修复后此处
+  /// 把存量数据原地校正, 避免老用户继续受影响。
+  Future<void> _migrateSessionCookiesToHostOnly() async {
+    final jar = _cookieJar;
+    if (jar is! EnhancedPersistCookieJar) return;
+
+    try {
+      final baseHost = Uri.parse(AppConstants.baseUrl).host.toLowerCase();
+      final all = await jar.readAllCookies();
+      final patched = <CanonicalCookie>[];
+
+      for (final cookie in all) {
+        if (!sessionCookieNames.contains(cookie.name)) continue;
+        if (cookie.hostOnly) continue;
+        final normalized = cookie.normalizedDomain;
+        if (normalized != baseHost) continue;
+
+        patched.add(
+          cookie.copyWith(
+            hostOnly: true,
+            domain: baseHost,
+          ),
+        );
+      }
+
+      if (patched.isEmpty) return;
+
+      // saveCanonicalCookies 的 storageKey 不含 hostOnly,
+      // 同 (name, domain, path) 的旧条目会被替换为 hostOnly=true 版本。
+      await jar.saveCanonicalCookies(
+        Uri.parse(AppConstants.baseUrl),
+        patched,
+      );
+      debugPrint(
+        '[CookieJar] Migrated ${patched.length} session cookie(s) back to host-only',
+      );
+    } catch (e) {
+      debugPrint('[CookieJar] Session cookie migration failed: $e');
+    }
   }
 
   // ---------------------------------------------------------------------------
