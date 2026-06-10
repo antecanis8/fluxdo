@@ -71,6 +71,15 @@ class PostFooterSection extends ConsumerStatefulWidget {
   /// 当前用于 "俺也一样" 按钮; 其他 post 传 null
   final Widget? opTopSlot;
 
+  /// 帖子级临时弹幕开关：true=强制按列表显示（覆盖全局弹幕偏好）
+  final bool forceShowBoostList;
+
+  /// 当前弹幕是否实际在显示（null = 当前帖子不展示弹幕开关；true/false = 显示与否）
+  final bool? danmakuActive;
+
+  /// 弹幕开关切换回调
+  final VoidCallback? onToggleDanmaku;
+
   const PostFooterSection({
     super.key,
     required this.post,
@@ -94,11 +103,17 @@ class PostFooterSection extends ConsumerStatefulWidget {
     this.onBoostUpdated,
     this.highlightBoostUsername,
     this.opTopSlot,
+    this.forceShowBoostList = false,
+    this.danmakuActive,
+    this.onToggleDanmaku,
   });
 
   @override
-  ConsumerState<PostFooterSection> createState() => _PostFooterSectionState();
+  ConsumerState<PostFooterSection> createState() => PostFooterSectionState();
 }
+
+// 公开 typedef，供外层(PostItem)通过 GlobalKey 调用 showBoostActions。
+typedef PostFooterSectionState = _PostFooterSectionState;
 
 class _PostFooterSectionState extends ConsumerState<PostFooterSection> {
   final DiscourseService _service = DiscourseService();
@@ -307,7 +322,10 @@ class _PostFooterSectionState extends ConsumerState<PostFooterSection> {
     );
   }
 
-  Future<void> _showBoostActions(Boost boost) async {
+  Future<void> _showBoostActions(Boost boost) => showBoostActions(boost);
+
+  /// 提供给外层(PostItem)的公开入口，方便弹幕浮层复用同一份 boost actions。
+  Future<void> showBoostActions(Boost boost) async {
     final currentUsername = ref.read(currentUserProvider).value?.username;
     if (currentUsername == null || currentUsername.isEmpty) {
       return;
@@ -415,6 +433,24 @@ class _PostFooterSectionState extends ConsumerState<PostFooterSection> {
     }
   }
 
+  Widget _buildBoostArea(BuildContext context) {
+    final isDanmaku = ref.watch(
+      preferencesProvider.select((p) => p.boostDanmaku),
+    );
+    // 弹幕模式下隐藏 footer 中的 boost 气泡区，由 PostItem 在帖子内容上叠加渲染；
+    // 但帖子级临时关闭弹幕时需要回退到列表展示。
+    if (isDanmaku && !widget.forceShowBoostList) {
+      return const SizedBox.shrink();
+    }
+    return BoostList(
+      boosts: _boosts,
+      canBoost: _canBoost,
+      onAddBoost: _openBoostInput,
+      onBoostTap: _showBoostActions,
+      highlightUsername: widget.highlightBoostUsername,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -471,19 +507,15 @@ class _PostFooterSectionState extends ConsumerState<PostFooterSection> {
             onToggleReplies: _toggleReplies,
             onAddBoost: _openBoostInput,
             canBoost: _canBoost,
-            hasBoosts: _boosts.isNotEmpty,
+            // 弹幕模式下 BoostList 不显示，把"+ Boost"按钮的位置让给 action bar
+            hasBoosts: _boosts.isNotEmpty &&
+                !(widget.danmakuActive == true),
+            danmakuActive: widget.danmakuActive,
+            onToggleDanmaku: widget.onToggleDanmaku,
           ),
-          // Boost 气泡列表
+          // Boost 气泡列表 / 弹幕
           if (_boosts.isNotEmpty)
-            BoostList(
-              boosts: _boosts,
-              canBoost: _canBoost,
-              onAddBoost: _openBoostInput,
-              onBoostTap: (boost) {
-                _showBoostActions(boost);
-              },
-              highlightUsername: widget.highlightBoostUsername,
-            ),
+            _buildBoostArea(context),
           ValueListenableBuilder<bool>(
             valueListenable: _showRepliesNotifier,
             builder: (context, showReplies, _) {

@@ -82,6 +82,8 @@
   "progressGesture_title": "進度條手勢",
   "reading_aiSwipeEntry": "AI 助手滑動入口",
   "reading_aiSwipeEntryDesc": "在話題詳情頁向左滑動開啟 AI 助手",
+  "reading_boostDanmaku": "Boost 彈幕化",
+  "reading_boostDanmakuDesc": "把 Boost 以彈幕形式疊加在帖子內容上方滾動，觸控暫停",
   "reading_expandRelatedLinks": "預設展開相關連結",
   "reading_expandRelatedLinksDesc": "帖子中的相關連結區域預設展開顯示",
   "reading_showSignatures": "顯示使用者簽名",

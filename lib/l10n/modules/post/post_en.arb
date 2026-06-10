@@ -1,6 +1,9 @@
 {
   "@@locale": "en",
   "boost_created": "Boost sent",
+  "boost_danmaku": "Danmaku",
+  "boost_danmakuDismiss": "Hide danmaku for this post",
+  "boost_danmakuShow": "Show danmaku for this post",
   "boost_deleteConfirm": "Are you sure you want to delete this boost?",
   "boost_deleteFailed": "Failed to delete boost",
   "boost_deleted": "Boost deleted",

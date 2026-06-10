@@ -1,6 +1,9 @@
 {
   "@@locale": "zh",
   "boost_created": "Boost 已发送",
+  "boost_danmaku": "弹幕",
+  "boost_danmakuDismiss": "暂时关闭此帖弹幕",
+  "boost_danmakuShow": "显示此帖弹幕",
   "boost_deleteConfirm": "确定要删除这条 Boost 吗？",
   "boost_deleteFailed": "Boost 删除失败",
   "boost_deleted": "Boost 已删除",

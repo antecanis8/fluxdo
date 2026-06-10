@@ -82,6 +82,8 @@
   "progressGesture_title": "Progress pill gestures",
   "reading_aiSwipeEntry": "AI Assistant swipe entry",
   "reading_aiSwipeEntryDesc": "Swipe left in topic detail to open AI Assistant",
+  "reading_boostDanmaku": "Boost as danmaku",
+  "reading_boostDanmakuDesc": "Overlay Boosts on top of post content as scrolling danmaku. Pauses on touch.",
   "reading_expandRelatedLinks": "Expand related links by default",
   "reading_expandRelatedLinksDesc": "Show related links expanded in posts",
   "reading_showSignatures": "Show user signatures",

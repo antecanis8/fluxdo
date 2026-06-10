@@ -41,6 +41,15 @@ List<SettingsGroup> buildReadingGroups(BuildContext context) {
           onChanged: (ref, v) =>
               ref.read(preferencesProvider.notifier).setDisplayPanguSpacing(v),
         ),
+        SwitchModel(
+          id: 'boostDanmaku',
+          title: l10n.reading_boostDanmaku,
+          subtitle: l10n.reading_boostDanmakuDesc,
+          icon: Icons.rocket_launch_outlined,
+          getValue: (ref) => ref.watch(preferencesProvider).boostDanmaku,
+          onChanged: (ref, v) =>
+              ref.read(preferencesProvider.notifier).setBoostDanmaku(v),
+        ),
       ],
     ),
     SettingsGroup(
