@@ -35,10 +35,6 @@ class PostActionBar extends StatefulWidget {
   final bool canBoost;
   final bool hasBoosts;
 
-  /// 弹幕开关：null = 不展示按钮；true/false = 当前显示状态（true=正在显示弹幕）
-  final bool? danmakuActive;
-  final VoidCallback? onToggleDanmaku;
-
   const PostActionBar({
     super.key,
     required this.post,
@@ -61,8 +57,6 @@ class PostActionBar extends StatefulWidget {
     this.onAddBoost,
     this.canBoost = false,
     this.hasBoosts = false,
-    this.danmakuActive,
-    this.onToggleDanmaku,
   });
 
   @override
@@ -105,62 +99,26 @@ class _PostActionBarState extends State<PostActionBar> {
         : null;
     final rightActions = _buildRightActions(theme);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // 估算右侧按钮组宽度：每个 ~36px + 8px gap，再加 likeArea 的额外宽度
-        final hasLikeArea = !widget.isGuest &&
-            (!widget.isOwnPost || widget.reactions.isNotEmpty);
-        final likeAreaWidth = hasLikeArea
-            ? 60.0 + widget.reactions.take(3).length * 20
-            : 0.0;
-        final iconButtonCount = rightActions.length - (hasLikeArea ? 1 : 0);
-        final rightWidth = likeAreaWidth +
-            iconButtonCount * 36 +
-            (rightActions.length - 1).clamp(0, 99) * 8;
-        // 估算左侧按钮（回复数）宽度
-        final leftWidth = leftButton == null ? 0.0 : 96.0;
-        // 总宽不够时让右侧按钮组在自身内部换行（Wrap），左侧保持原位
-        final overflow =
-            leftWidth + 12 + rightWidth > constraints.maxWidth;
-
-        final rightWidget = overflow
-            ? Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: rightActions,
-              )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: _interleave(rightActions, const SizedBox(width: 8)),
-              );
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            ?leftButton,
-            const Spacer(),
-            // Wrap 需要有限宽度
-            Flexible(child: Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: rightWidget,
-            )),
-          ],
-        );
-      },
+    // 右侧整组放进 Wrap：放得下时单行右对齐，放不下时自动换行，
+    // 不做宽度估算，由布局系统自己决定
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (leftButton != null) ...[
+          leftButton,
+          const SizedBox(width: 12),
+        ],
+        Expanded(
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: rightActions,
+          ),
+        ),
+      ],
     );
-  }
-
-  /// 在 children 之间插入分隔（仅用于已合并好的 actions 列表）
-  static List<Widget> _interleave(List<Widget> children, Widget sep) {
-    if (children.isEmpty) return const [];
-    final out = <Widget>[];
-    for (var i = 0; i < children.length; i++) {
-      if (i > 0) out.add(sep);
-      out.add(children[i]);
-    }
-    return out;
   }
 
   Widget _buildRepliesButton(ThemeData theme) {
@@ -248,12 +206,6 @@ class _PostActionBarState extends State<PostActionBar> {
           onTap: widget.onAddBoost,
         ));
       }
-      if (widget.danmakuActive != null && widget.onToggleDanmaku != null) {
-        actions.add(_DanmakuToggleButton(
-          active: widget.danmakuActive!,
-          onTap: widget.onToggleDanmaku!,
-        ));
-      }
       actions.add(_iconCircle(
         theme,
         tooltip: context.l10n.common_reply,
@@ -298,6 +250,37 @@ class _PostActionBarState extends State<PostActionBar> {
     return child;
   }
 
+  /// 表情叠叠乐：最多 3 个重叠排列，第一个在最上层。
+  /// 描边沿表情自身轮廓（贴纸效果）：把表情染成底色后向四周偏移绘制在底层，
+  /// 再叠原图，避免圆形底盘的生硬感。
+  Widget _buildReactionStack(ThemeData theme) {
+    final shown = widget.reactions.take(3).toList();
+    const double size = 16;
+    const double step = 11; // 相邻表情的水平偏移
+    return SizedBox(
+      width: size + (shown.length - 1) * step,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // 倒序绘制，让靠前的表情盖在上层
+          for (var i = shown.length - 1; i >= 0; i--)
+            Positioned(
+              left: i * step,
+              child: _OutlinedEmoji(
+                image: emojiImageProvider(_getEmojiUrl(shown[i].id)),
+                // 描边的作用是「咬掉」压在下面的表情一圈，
+                // 最下层没有压着任何表情，无需描边
+                outlineColor:
+                    i == shown.length - 1 ? null : theme.colorScheme.surface,
+                size: size,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   /// 构建点赞/回应区域，桌面端支持 hover 触发表情选择器
   Widget _buildLikeReactionArea(ThemeData theme) {
     Widget area = Container(
@@ -330,24 +313,10 @@ class _PostActionBarState extends State<PostActionBar> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (!(widget.reactions.length == 1 && widget.reactions.first.id == 'heart'))
-                      ...widget.reactions.take(3).map((reaction) => GestureDetector(
-                        onTap: () => widget.onShowReactionUsers(reaction.id),
-                        behavior: HitTestBehavior.opaque,
-                        child: Container(
-                          height: 36,
-                          padding: const EdgeInsets.symmetric(horizontal: 2),
-                          alignment: Alignment.center,
-                          child: Image(
-                            image: emojiImageProvider(_getEmojiUrl(reaction.id)),
-                            width: 16,
-                            height: 16,
-                            errorBuilder: (_, _, _) => const SizedBox(width: 16, height: 16),
-                          ),
-                        ),
-                      )),
-                    if (!(widget.reactions.length == 1 && widget.reactions.first.id == 'heart'))
+                    if (!(widget.reactions.length == 1 && widget.reactions.first.id == 'heart')) ...[
+                      _buildReactionStack(theme),
                       const SizedBox(width: 4),
+                    ],
                     Text(
                       '${widget.reactions.fold(0, (sum, r) => sum + r.count)}',
                       style: theme.textTheme.labelMedium?.copyWith(
@@ -406,86 +375,52 @@ class _PostActionBarState extends State<PostActionBar> {
   }
 }
 
-/// 弹幕开关：用与点赞/回复同样的圆形按钮风格，激活/关闭通过 IconStyle 区分。
-class _DanmakuToggleButton extends StatelessWidget {
-  final bool active;
-  final VoidCallback onTap;
+/// 带轮廓描边的表情：底层用染成 outlineColor 的表情副本向 8 个方向偏移，
+/// 形成沿图形轮廓的描边（贴纸效果）；outlineColor 为 null 时只画原图。
+class _OutlinedEmoji extends StatelessWidget {
+  final ImageProvider image;
+  final Color? outlineColor;
+  final double size;
 
-  const _DanmakuToggleButton({required this.active, required this.onTap});
+  const _OutlinedEmoji({
+    required this.image,
+    required this.outlineColor,
+    required this.size,
+  });
+
+  static const List<Offset> _outlineOffsets = [
+    Offset(-1.5, 0),
+    Offset(1.5, 0),
+    Offset(0, -1.5),
+    Offset(0, 1.5),
+    Offset(-1.1, -1.1),
+    Offset(1.1, -1.1),
+    Offset(-1.1, 1.1),
+    Offset(1.1, 1.1),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bg = active
-        ? theme.colorScheme.primaryContainer.withValues(alpha: 0.5)
-        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3);
-    final fg = active
-        ? theme.colorScheme.primary
-        : theme.colorScheme.onSurfaceVariant;
-    return Tooltip(
-      message: active
-          ? context.l10n.boost_danmakuDismiss
-          : context.l10n.boost_danmakuShow,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 36,
-          width: 36,
-          decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-          child: CustomPaint(
-            painter: _DanmakuIconPainter(color: fg, off: !active),
+    final emoji = Image(
+      image: image,
+      width: size,
+      height: size,
+      errorBuilder: (_, _, _) => SizedBox(width: size, height: size),
+    );
+    if (outlineColor == null) return emoji;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        for (final offset in _outlineOffsets)
+          Transform.translate(
+            offset: offset,
+            child: ColorFiltered(
+              colorFilter: ColorFilter.mode(outlineColor!, BlendMode.srcIn),
+              child: emoji,
+            ),
           ),
-        ),
-      ),
+        emoji,
+      ],
     );
   }
-}
-
-class _DanmakuIconPainter extends CustomPainter {
-  final Color color;
-  final bool off;
-  _DanmakuIconPainter({required this.color, required this.off});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 居中绘制一个 18x18 的弹幕屏图标
-    const double iconSize = 18;
-    final dx = (size.width - iconSize) / 2;
-    final dy = (size.height - iconSize) / 2;
-    canvas.save();
-    canvas.translate(dx, dy);
-
-    final stroke = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    // 弹幕屏外框
-    final rrect = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(1.2, 3.6, iconSize - 2.4, iconSize - 7.2),
-      const Radius.circular(3.2),
-    );
-    canvas.drawRRect(rrect, stroke);
-
-    // 两条弹幕线
-    canvas.drawLine(const Offset(3.6, 7.6), const Offset(11.2, 7.6), stroke);
-    canvas.drawLine(const Offset(5.2, 11.0), const Offset(13.0, 11.0), stroke);
-
-    if (off) {
-      // 关闭斜杠（左下→右上）
-      canvas.drawLine(
-        const Offset(1.5, iconSize - 1.5),
-        const Offset(iconSize - 1.5, 1.5),
-        stroke,
-      );
-    }
-
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _DanmakuIconPainter old) =>
-      old.color != color || old.off != off;
 }

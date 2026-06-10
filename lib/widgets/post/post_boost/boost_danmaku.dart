@@ -446,3 +446,76 @@ class _AvatarStrip extends StatelessWidget {
     );
   }
 }
+
+/// 弹幕图标（Material Icons 没有合适的弹幕图形，自绘）。
+/// [off] 为 true 时叠加一条关闭斜杠。
+class DanmakuIcon extends StatelessWidget {
+  final Color color;
+  final bool off;
+  final double size;
+
+  const DanmakuIcon({
+    super.key,
+    required this.color,
+    this.off = false,
+    this.size = 24,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _DanmakuIconPainter(color: color, off: off)),
+    );
+  }
+}
+
+class _DanmakuIconPainter extends CustomPainter {
+  final Color color;
+  final bool off;
+  _DanmakuIconPainter({required this.color, required this.off});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 居中绘制一个 18x18 的弹幕屏图标
+    const double iconSize = 18;
+    final dx = (size.width - iconSize) / 2;
+    final dy = (size.height - iconSize) / 2;
+    canvas.save();
+    canvas.translate(dx, dy);
+
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // 弹幕屏外框
+    final rrect = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(1.2, 3.6, iconSize - 2.4, iconSize - 7.2),
+      const Radius.circular(3.2),
+    );
+    canvas.drawRRect(rrect, stroke);
+
+    // 两条弹幕线
+    canvas.drawLine(const Offset(3.6, 7.6), const Offset(11.2, 7.6), stroke);
+    canvas.drawLine(const Offset(5.2, 11.0), const Offset(13.0, 11.0), stroke);
+
+    if (off) {
+      // 关闭斜杠（左下→右上）
+      canvas.drawLine(
+        const Offset(1.5, iconSize - 1.5),
+        const Offset(iconSize - 1.5, 1.5),
+        stroke,
+      );
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _DanmakuIconPainter old) =>
+      old.color != color || old.off != off;
+}

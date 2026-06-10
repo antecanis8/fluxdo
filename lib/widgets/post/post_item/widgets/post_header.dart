@@ -11,6 +11,7 @@ import '../../../common/flair_badge.dart';
 import '../../../common/smart_avatar.dart';
 import '../../../common/avatar_glow.dart';
 import '../../whisper_indicator.dart';
+import '../../post_boost/boost_danmaku.dart';
 import 'post_granted_badge.dart';
 
 /// 获取 emoji 图片 URL（未加载完成时返回空字符串，由 errorBuilder 处理）
@@ -91,6 +92,10 @@ class PostHeader extends StatelessWidget {
   final Widget Function(BuildContext context, String text, Color backgroundColor, Color textColor) buildCompactBadge;
   final Widget timeAndFloorWidget;
 
+  /// 弹幕开关：null = 不展示；true/false = 当前是否正在显示弹幕
+  final bool? danmakuActive;
+  final VoidCallback? onToggleDanmaku;
+
   const PostHeader({
     super.key,
     required this.post,
@@ -105,6 +110,8 @@ class PostHeader extends StatelessWidget {
     this.hideReplyIndicator = false,
     required this.buildCompactBadge,
     required this.timeAndFloorWidget,
+    this.danmakuActive,
+    this.onToggleDanmaku,
   });
 
   @override
@@ -249,6 +256,30 @@ class PostHeader extends StatelessWidget {
           else
             _buildReplyIndicator(theme, showUsername: true),
           const SizedBox(width: 12),
+        ],
+        // 弹幕开关：小图标按钮，紧挨时间/楼层
+        if (danmakuActive != null && onToggleDanmaku != null) ...[
+          Tooltip(
+            message: danmakuActive!
+                ? context.l10n.boost_danmakuDismiss
+                : context.l10n.boost_danmakuShow,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onToggleDanmaku,
+              child: Padding(
+                // 扩大点击区域到 ~32dp
+                padding: const EdgeInsets.all(6),
+                child: DanmakuIcon(
+                  color: danmakuActive!
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                  off: !danmakuActive!,
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
         ],
         timeAndFloorWidget,
       ],

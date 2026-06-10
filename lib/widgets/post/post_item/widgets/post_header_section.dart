@@ -26,6 +26,9 @@ class PostHeaderSection extends ConsumerStatefulWidget {
   final void Function(int postNumber)? onReplyIndicatorTap;
   /// 隐藏回复指示的目标帖子号（回复此帖时不显示指示器）
   final int? hideReplyToPostNumber;
+  /// 弹幕开关：null = 不展示；true/false = 当前是否正在显示弹幕
+  final bool? danmakuActive;
+  final VoidCallback? onToggleDanmaku;
   const PostHeaderSection({
     super.key,
     required this.post,
@@ -37,6 +40,8 @@ class PostHeaderSection extends ConsumerStatefulWidget {
     this.disableReplyHistory = false,
     this.onReplyIndicatorTap,
     this.hideReplyToPostNumber,
+    this.danmakuActive,
+    this.onToggleDanmaku,
   });
 
   @override
@@ -201,6 +206,8 @@ class _PostHeaderSectionState extends ConsumerState<PostHeaderSection> {
                     : null,
                 hideReplyIndicator: widget.hideReplyToPostNumber != null &&
                     widget.post.replyToPostNumber == widget.hideReplyToPostNumber,
+                danmakuActive: widget.danmakuActive,
+                onToggleDanmaku: widget.onToggleDanmaku,
                 buildCompactBadge: _buildCompactBadge,
                 timeAndFloorWidget: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,

@@ -74,11 +74,9 @@ class PostFooterSection extends ConsumerStatefulWidget {
   /// 帖子级临时弹幕开关：true=强制按列表显示（覆盖全局弹幕偏好）
   final bool forceShowBoostList;
 
-  /// 当前弹幕是否实际在显示（null = 当前帖子不展示弹幕开关；true/false = 显示与否）
+  /// 当前弹幕是否实际在显示（null = 当前帖子不展示弹幕；true/false = 显示与否），
+  /// 用于决定 "+ Boost" 火箭按钮是否出现在 action bar
   final bool? danmakuActive;
-
-  /// 弹幕开关切换回调
-  final VoidCallback? onToggleDanmaku;
 
   const PostFooterSection({
     super.key,
@@ -105,7 +103,6 @@ class PostFooterSection extends ConsumerStatefulWidget {
     this.opTopSlot,
     this.forceShowBoostList = false,
     this.danmakuActive,
-    this.onToggleDanmaku,
   });
 
   @override
@@ -510,8 +507,6 @@ class _PostFooterSectionState extends ConsumerState<PostFooterSection> {
             // 弹幕模式下 BoostList 不显示，把"+ Boost"按钮的位置让给 action bar
             hasBoosts: _boosts.isNotEmpty &&
                 !(widget.danmakuActive == true),
-            danmakuActive: widget.danmakuActive,
-            onToggleDanmaku: widget.onToggleDanmaku,
           ),
           // Boost 气泡列表 / 弹幕
           if (_boosts.isNotEmpty)

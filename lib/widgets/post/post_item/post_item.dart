@@ -152,6 +152,12 @@ class _PostItemState extends ConsumerState<PostItem> {
                 showStamp: _acceptedAnswer,
                 padding: EdgeInsets.zero,
                 onJumpToPost: widget.onJumpToPost,
+                danmakuActive: showDanmakuToggle ? showDanmaku : null,
+                onToggleDanmaku: showDanmakuToggle
+                    ? () => setState(() {
+                          _danmakuOverride = !showDanmaku;
+                        })
+                    : null,
               ),
             ),
             const SizedBox(height: 12),
@@ -332,11 +338,6 @@ class _PostItemState extends ConsumerState<PostItem> {
                 post: post,
                 forceShowBoostList: _danmakuOverride == false,
                 danmakuActive: showDanmakuToggle ? showDanmaku : null,
-                onToggleDanmaku: showDanmakuToggle
-                    ? () => setState(() {
-                          _danmakuOverride = !showDanmaku;
-                        })
-                    : null,
                 topicId: widget.topicId,
                 topicHasAcceptedAnswer: widget.topicHasAcceptedAnswer,
                 acceptedAnswers: widget.acceptedAnswers,
