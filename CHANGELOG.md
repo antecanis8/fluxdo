@@ -2,6 +2,35 @@
 
 所有版本的变更记录。beta / rc 版本提交在 stable 发版时会折叠并入对应 stable 版本。
 
+## [0.2.17] - 2026-06-10
+
+
+### 🌟 新功能
+
+- Hcaptcha create endpoint 可配置 + fallback 列表 by @Lingyan000
+
+- Hcaptcha create endpoint 可配置 + fallback 列表 by @Lingyan000
+
+
+### 🐛 修复
+
+- ApiKey 改明文存储 + 诊断走应用日志,根治「未收到 AI 回复」 by @Lingyan000
+
+- 修 Android nukeAllVariants 因无 Looper 线程致空操作 by @Lingyan000
+
+- 升 native_animated_image 0.3.1: 修不透明动画 WebP 解码 crash by @Lingyan000
+
+- 修请求调度器按 dio 实例独立窗口, 导致服务端 429 by @Lingyan000
+
+- 修请求调度器按 dio 实例独立窗口, 导致服务端 429 by @Lingyan000
+
+- Release notes 从上个 stable 起算 + Pages 图标路径动态化 by @Lingyan000
+
+
+
+
+**Full Changelog**: https://github.com/lingyan000/fluxdo/compare/v0.2.16...v0.2.17
+
 ## [0.2.16] - 2026-06-09
 
 
