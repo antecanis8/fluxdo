@@ -40,6 +40,21 @@ class MainActivity : FlutterActivity() {
         window.decorView.requestApplyInsets()
     }
 
+    // 修复 Android 14+ 预见式返回手势进行中时, 锁屏 / 切后台导致 UI 卡死
+    // 根因: 系统不会在 Activity 进入 stopped 时补发 onBackCancelled, Flutter 引擎
+    //       不知道手势已中断, Dart 路由 AnimationController 卡在 0.x 中间值,
+    //       回前台后整个 UI 无响应 (参见 flutter/flutter#161040 / #105561)
+    // 方案: stop 前主动广播 cancelBackGesture, Dart 端 reverse 复位
+    //       手势未进行时调用也安全, 引擎会忽略
+    override fun onStop() {
+        try {
+            flutterEngine?.backGestureChannel?.cancelBackGesture()
+        } catch (e: Throwable) {
+            Log.w(TAG, "cancelBackGesture on stop failed: ${e.message}")
+        }
+        super.onStop()
+    }
+
     private val CHANNEL = "com.github.lingyan000.fluxdo/browser"
     private val CRASHLYTICS_CHANNEL = "com.github.lingyan000.fluxdo/crashlytics"
     private val ICON_CHANNEL = "com.github.lingyan000.fluxdo/app_icon"
