@@ -37,10 +37,7 @@ class _AiProviderEditPageState extends ConsumerState<AiProviderEditPage> {
   int _tabIndex = 0;
 
   bool _obscureApiKey = true;
-  bool _isCheckingConnectivity = false;
   bool _isSaving = false;
-  bool? _connectivitySuccess;
-  String? _connectivityError;
   String? _testingModelId;
   final Map<String, String?> _modelTestResults = {};
 
@@ -85,40 +82,6 @@ class _AiProviderEditPageState extends ConsumerState<AiProviderEditPage> {
       }
       _selectedType = type;
     });
-  }
-
-  Future<void> _checkConnectivity() async {
-    final apiKey = _apiKeyCtrl.text.trim();
-    final baseUrl = _baseUrlCtrl.text.trim();
-    if (apiKey.isEmpty || baseUrl.isEmpty) {
-      AiToastDelegate.showInfo(AiL10n.current.pleaseEnterBaseUrlAndApiKey);
-      return;
-    }
-    setState(() {
-      _isCheckingConnectivity = true;
-      _connectivitySuccess = null;
-      _connectivityError = null;
-    });
-    try {
-      final service = ref.read(aiProviderApiServiceProvider);
-      final ok =
-          await service.checkConnectivity(_selectedType, baseUrl, apiKey);
-      if (mounted) {
-        setState(() {
-          _connectivitySuccess = ok;
-          _connectivityError = ok ? null : '';
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _connectivitySuccess = false;
-          _connectivityError = AiProviderApiService.friendlyError(e);
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _isCheckingConnectivity = false);
-    }
   }
 
   Future<void> _testModel(String modelId) async {
@@ -357,8 +320,23 @@ class _AiProviderEditPageState extends ConsumerState<AiProviderEditPage> {
             ? AiL10n.current.editProvider
             : AiL10n.current.addProvider),
         actions: [
+          // 测试模型快捷入口:放 AppBar 避免在配置表单中段塞按钮显得割裂,
+          // 两个 tab(配置 / 模型)都能用同一个入口。
+          IconButton(
+            tooltip: AiL10n.current.testModel,
+            onPressed: _testingModelId != null ? null : _showTestModelPicker,
+            icon: _testingModelId != null
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary),
+                  )
+                : const Icon(Icons.bolt_outlined),
+          ),
           Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.only(right: 8, left: 4),
             child: FilledButton(
               onPressed: _isSaving ? null : _save,
               child: _isSaving
@@ -568,74 +546,8 @@ class _AiProviderEditPageState extends ConsumerState<AiProviderEditPage> {
                     setState(() => _obscureApiKey = !_obscureApiKey),
               )),
         ),
-        const SizedBox(height: 20),
-        // 连通性 + 测试
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.tonalIcon(
-                onPressed:
-                    _isCheckingConnectivity ? null : _checkConnectivity,
-                icon: _isCheckingConnectivity
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: cs.primary),
-                      )
-                    : const Icon(Icons.wifi_tethering, size: 18),
-                label: Text(AiL10n.current.connectivityCheck),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: FilledButton.tonalIcon(
-                onPressed:
-                    _testingModelId != null ? null : _showTestModelPicker,
-                icon: _testingModelId != null
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: cs.primary),
-                      )
-                    : const Icon(Icons.play_arrow_rounded, size: 18),
-                label: Text(AiL10n.current.testModel),
-              ),
-            ),
-          ],
-        ),
-        if (_connectivitySuccess != null) ...[
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(
-                _connectivitySuccess! ? Icons.check_circle : Icons.error,
-                size: 18,
-                color:
-                    _connectivitySuccess! ? Colors.green : cs.error,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  _connectivitySuccess!
-                      ? AiL10n.current.connectionSuccess
-                      : (_connectivityError != null &&
-                              _connectivityError!.isNotEmpty
-                          ? AiL10n.current.connectionFailedWithError(
-                              _connectivityError!)
-                          : AiL10n.current.connectionFailed),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: _connectivitySuccess!
-                        ? Colors.green
-                        : cs.error,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
+        // 测试模型按钮挪到 AppBar 右上角(闪电图标),避免表单中段塞按钮
+        // 显得割裂,且两个 tab 都能复用同一个入口。
       ],
     );
   }

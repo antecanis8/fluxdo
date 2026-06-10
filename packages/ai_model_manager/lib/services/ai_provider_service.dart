@@ -98,27 +98,6 @@ class AiProviderApiService {
     }
   }
 
-  /// 检查连通性
-  Future<bool> checkConnectivity(
-    AiProviderType type,
-    String baseUrl,
-    String apiKey,
-  ) async {
-    try {
-      switch (type) {
-        case AiProviderType.openai:
-        case AiProviderType.openaiResponse:
-          return await _checkOpenAiConnectivity(baseUrl, apiKey);
-        case AiProviderType.gemini:
-          return await _checkGeminiConnectivity(baseUrl, apiKey);
-        case AiProviderType.anthropic:
-          return await _checkAnthropicConnectivity(baseUrl, apiKey);
-      }
-    } catch (_) {
-      return false;
-    }
-  }
-
   Future<List<AiModel>> _fetchOpenAiModels(
       String baseUrl, String apiKey) async {
     final dio = _createDio();
@@ -166,68 +145,6 @@ class AiProviderApiService {
       }).toList();
       models.sort((a, b) => a.id.compareTo(b.id));
       return models;
-    } finally {
-      dio.close();
-    }
-  }
-
-  Future<bool> _checkOpenAiConnectivity(
-      String baseUrl, String apiKey) async {
-    final dio = _createDio();
-    try {
-      final url = '${ApiHostFormatter.format(baseUrl)}/models';
-      final response = await dio.get(
-        url,
-        options: Options(headers: {'Authorization': 'Bearer $apiKey'}),
-      );
-      return response.statusCode == 200;
-    } finally {
-      dio.close();
-    }
-  }
-
-  Future<bool> _checkGeminiConnectivity(
-      String baseUrl, String apiKey) async {
-    final dio = _createDio();
-    try {
-      final url =
-          '${ApiHostFormatter.format(baseUrl, apiVersion: 'v1beta')}/models';
-      final response = await dio.get(
-        url,
-        queryParameters: {'key': apiKey},
-      );
-      return response.statusCode == 200;
-    } finally {
-      dio.close();
-    }
-  }
-
-  Future<bool> _checkAnthropicConnectivity(
-      String baseUrl, String apiKey) async {
-    final dio = _createDio();
-    try {
-      final url = '${ApiHostFormatter.format(baseUrl)}/messages';
-      final response = await dio.post(
-        url,
-        data: {
-          'model': 'claude-sonnet-4-20250514',
-          'max_tokens': 1,
-          'messages': [
-            {'role': 'user', 'content': 'hi'}
-          ],
-        },
-        options: Options(headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        }),
-      );
-      // 200 或 400（参数错误但说明连通）都算成功
-      return response.statusCode == 200;
-    } on DioException catch (e) {
-      // 400 说明 API Key 有效，只是请求参数不满足
-      if (e.response?.statusCode == 400) return true;
-      return false;
     } finally {
       dio.close();
     }
