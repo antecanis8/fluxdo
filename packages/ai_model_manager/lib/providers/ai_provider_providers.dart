@@ -4,13 +4,13 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // ignore: depend_on_referenced_packages
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/ai_provider.dart';
 import '../services/ai_chat_storage_service.dart';
 import '../services/ai_provider_service.dart';
-import '../services/resilient_secure_storage.dart';
 import '../utils/model_capabilities.dart';
 
 /// 需要主应用在 ProviderScope.overrides 中注入
@@ -164,9 +164,18 @@ Future<void> clearDefaultAiModel(
 /// 供应商列表 Notifier
 class AiProviderListNotifier extends StateNotifier<List<AiProvider>> {
   static const String _storageKey = 'ai_providers';
+  static const String _kApiKeyPrefix = 'ai_apikey_';
+  static const String _kLegacyKeychainPrefix = 'ai_provider_key_';
+  static const String _kLegacyFallbackPrefix =
+      '__secure_fallback__ai_provider_key_';
   static const _uuid = Uuid();
 
-  static final ResilientSecureStorage _secureStorage = ResilientSecureStorage();
+  /// 老 Keychain 数据迁移源,仅用于把历史用户存在 Keychain 里的 apiKey
+  /// 一次性搬到 SharedPreferences。迁移完即不再使用,下个大版本可彻底
+  /// 移除 flutter_secure_storage 依赖。
+  static const FlutterSecureStorage _legacyKeychain = FlutterSecureStorage(
+    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+  );
 
   final SharedPreferences _prefs;
 
@@ -316,17 +325,87 @@ class AiProviderListNotifier extends StateNotifier<List<AiProvider>> {
     return models.map(ModelCapabilities.infer).toList(growable: false);
   }
 
-  /// 获取 API Key
+  /// 获取 API Key。
+  ///
+  /// 优先读 SharedPreferences 明文(新主存)；没有则尝试从老 Keychain 或
+  /// 之前的 prefs fallback 一次性迁移过来,迁移后立刻清掉老位置。
+  ///
+  /// 切明文的理由参见 [_saveApiKey] 注释。
   static Future<String?> getApiKey(String providerId) async {
-    return _secureStorage.read(key: 'ai_provider_key_$providerId');
+    final prefs = await SharedPreferences.getInstance();
+    final plain = prefs.getString('$_kApiKeyPrefix$providerId');
+    if (plain != null) {
+      final trimmed = plain.trim();
+      if (trimmed.isNotEmpty) return trimmed;
+    }
+    return _migrateLegacyApiKey(providerId, prefs);
   }
 
+  /// 一次性迁移:从老 Keychain / 之前的 prefs fallback 拿到 apiKey 后
+  /// 写到新 key,清掉老位置。老用户升级后第一次用 AI 时触发,后续直接走 prefs。
+  static Future<String?> _migrateLegacyApiKey(
+    String providerId,
+    SharedPreferences prefs,
+  ) async {
+    String? value;
+    try {
+      final fromKeychain = await _legacyKeychain.read(
+        key: '$_kLegacyKeychainPrefix$providerId',
+      );
+      if (fromKeychain != null && fromKeychain.trim().isNotEmpty) {
+        value = fromKeychain.trim();
+      }
+    } catch (_) {
+      // Keychain 读失败(自签失效 / mac 未签名 / Linux 无 keyring)→ 看 prefs fallback
+    }
+    if (value == null) {
+      final fromFallback = prefs.getString(
+        '$_kLegacyFallbackPrefix$providerId',
+      );
+      if (fromFallback != null && fromFallback.trim().isNotEmpty) {
+        value = fromFallback.trim();
+      }
+    }
+    if (value == null) return null;
+
+    await prefs.setString('$_kApiKeyPrefix$providerId', value);
+    await prefs.remove('$_kLegacyFallbackPrefix$providerId');
+    try {
+      await _legacyKeychain.delete(key: '$_kLegacyKeychainPrefix$providerId');
+    } catch (_) {
+      // 删失败无所谓,新位置已经存了,下次不会再走迁移分支
+    }
+    return value;
+  }
+
+  /// 保存 API Key 到 SharedPreferences 明文。
+  ///
+  /// 跟业界主流 AI 客户端(Cherry Studio / LobeChat / ChatBox / Kelivo /
+  /// AnythingLLM)一致:apiKey 跟 baseUrl 同等敏感,放同档存储,无需 Keychain
+  /// 加密。Keychain 在 iOS 自签 / macOS 不签名场景下会失效,反而引入「未收到
+  /// AI 回复」类故障——业界都不挡这条路。
   static Future<void> _saveApiKey(String providerId, String apiKey) async {
-    await _secureStorage.write(
-        key: 'ai_provider_key_$providerId', value: apiKey);
+    final trimmed = apiKey.trim();
+    if (trimmed.isEmpty) {
+      // 拒绝写入空 key;调用方应该走 _deleteApiKey 清除而不是写空串。
+      await _deleteApiKey(providerId);
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$_kApiKeyPrefix$providerId', trimmed);
+    // 顺便清掉老位置,避免新老两份 apiKey 共存导致迁移逻辑下次还跑
+    await prefs.remove('$_kLegacyFallbackPrefix$providerId');
+    try {
+      await _legacyKeychain.delete(key: '$_kLegacyKeychainPrefix$providerId');
+    } catch (_) {}
   }
 
   static Future<void> _deleteApiKey(String providerId) async {
-    await _secureStorage.delete(key: 'ai_provider_key_$providerId');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_kApiKeyPrefix$providerId');
+    await prefs.remove('$_kLegacyFallbackPrefix$providerId');
+    try {
+      await _legacyKeychain.delete(key: '$_kLegacyKeychainPrefix$providerId');
+    } catch (_) {}
   }
 }

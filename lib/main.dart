@@ -72,6 +72,7 @@ import 'utils/time_utils.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_model_manager/ai_model_manager.dart';
+import 'services/app_logger.dart';
 import 'services/network/adapters/platform_adapter.dart';
 import 'providers/preferences_provider.dart';
 import 'providers/theme_provider.dart';
@@ -372,6 +373,19 @@ Future<void> main() async {
     handlerTimeout: 10000,
     filterFunction: filterKnownFrameworkBugs,
   );
+
+  // 把 ai_model_manager 包内的诊断日志桥接到主应用 AppLogger,
+  // 让 release 模式下也能写到日志文件供反馈用户提交排查。
+  AiPackageLogger.handler = (level, tag, message) {
+    switch (level) {
+      case 'error':
+        AppLogger.error(message, tag: tag);
+      case 'warning':
+        AppLogger.warning(message, tag: tag);
+      default:
+        AppLogger.info(message, tag: tag);
+    }
+  };
 
   Catcher2(
     navigatorKey: navigatorKey,

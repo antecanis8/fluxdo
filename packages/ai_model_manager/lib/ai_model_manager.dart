@@ -10,6 +10,7 @@ export 'utils/model_capabilities.dart';
 export 'services/ai_provider_service.dart';
 export 'services/ai_chat_service.dart';
 export 'services/ai_chat_storage_service.dart';
+export 'services/ai_package_logger.dart';
 export 'services/prompt_preset_storage.dart';
 export 'services/toast_delegate.dart';
 export 'l10n/ai_l10n.dart';

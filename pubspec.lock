@@ -854,50 +854,50 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_secure_storage
-      sha256: "9cad52d75ebc511adfae3d447d5d13da15a55a92c9410e50f67335b6d21d16ea"
+      sha256: "7686b1d6a29985dcbb808c59518226e603e3bfa7c0ddfd1a0d00e4cda77c868e"
       url: "https://pub.dev"
     source: hosted
-    version: "9.2.4"
+    version: "10.3.1"
+  flutter_secure_storage_darwin:
+    dependency: transitive
+    description:
+      name: flutter_secure_storage_darwin
+      sha256: "82329fa5cdf343773b1b6897dea959105a29f092454259edff92f9f6637e8149"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.2"
   flutter_secure_storage_linux:
     dependency: transitive
     description:
       name: flutter_secure_storage_linux
-      sha256: be76c1d24a97d0b98f8b54bce6b481a380a6590df992d0098f868ad54dc8f688
+      sha256: a5f35ddab43cf5c8215d2feb4ce1957851f28c5c37e6f04335066a0602087bf5
       url: "https://pub.dev"
     source: hosted
-    version: "1.2.3"
-  flutter_secure_storage_macos:
-    dependency: transitive
-    description:
-      name: flutter_secure_storage_macos
-      sha256: "6c0a2795a2d1de26ae202a0d78527d163f4acbb11cde4c75c670f3a0fc064247"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.1.3"
+    version: "3.0.1"
   flutter_secure_storage_platform_interface:
     dependency: transitive
     description:
       name: flutter_secure_storage_platform_interface
-      sha256: cf91ad32ce5adef6fba4d736a542baca9daf3beac4db2d04be350b87f69ac4a8
+      sha256: "8ceea1223bee3c6ac1a22dabd8feefc550e4729b3675de4b5900f55afcb435d6"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.2"
+    version: "2.0.1"
   flutter_secure_storage_web:
     dependency: transitive
     description:
       name: flutter_secure_storage_web
-      sha256: f4ebff989b4f07b2656fb16b47852c0aab9fed9b4ec1c70103368337bc1886a9
+      sha256: "073a62b3aeb866ab4ce795f960413948e51e5a42a9b0c8333b6daf5bb3208a1c"
       url: "https://pub.dev"
     source: hosted
-    version: "1.2.1"
+    version: "2.1.1"
   flutter_secure_storage_windows:
     dependency: transitive
     description:
       name: flutter_secure_storage_windows
-      sha256: b20b07cb5ed4ed74fc567b78a72936203f587eba460af1df11281c9326cd3709
+      sha256: "3b7c8e068875dfd46719ff57c90d8c459c87f2302ed6b00ff006b3c9fcad1613"
       url: "https://pub.dev"
     source: hosted
-    version: "3.1.2"
+    version: "4.1.0"
   flutter_svg:
     dependency: transitive
     description:
@@ -1448,50 +1448,50 @@ packages:
     dependency: "direct main"
     description:
       name: native_animated_image
-      sha256: "8b0fc23d5a1a59952142ec7db4e766b455c35fd93ef87ccf97e954b1b9bb36dc"
+      sha256: "33edfc4094a31194d3ce0235f490bbd9ebb0b586888348108aa4015e8a4aad56"
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.0"
+    version: "0.3.1"
   native_animated_image_android:
     dependency: transitive
     description:
       name: native_animated_image_android
-      sha256: "0012cfeeca82b8759c2872f1bbddfe9ef15bd2f9bfb6f934b5f8898f8ffc05c0"
+      sha256: "842409d47e165a9263d87b6a74efee6c2255555030ceca89d8190647d2e977dd"
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.0"
+    version: "0.3.1"
   native_animated_image_ios:
     dependency: transitive
     description:
       name: native_animated_image_ios
-      sha256: c6dcb092670c447706b858f4fe1d9e864a7f1087417153790037ac409b776cb6
+      sha256: f681b31e91218dfdb8c8753b48a102d828625010492dded1e29d2d948fbfa38f
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.0"
+    version: "0.3.1"
   native_animated_image_linux:
     dependency: transitive
     description:
       name: native_animated_image_linux
-      sha256: "1c8e5dec28aaaa52c8f363afb4cf4d436e8c35a0f6d676cd457401b45a1ab30e"
+      sha256: e69cf582db12e337c60f8031a817915084258ccf139b298567708330565584ce
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.0"
+    version: "0.3.1"
   native_animated_image_macos:
     dependency: transitive
     description:
       name: native_animated_image_macos
-      sha256: "44c0846fb2286a8d3192dd3c4b60415cb6bb7e2478e47f015cbb1ad061bf748b"
+      sha256: "5d3406753da264624e1ebfe3579da1491f52f6594624e90e62fa8192427334c4"
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.0"
+    version: "0.3.1"
   native_animated_image_windows:
     dependency: transitive
     description:
       name: native_animated_image_windows
-      sha256: "8b9735315b47a69f12d3ba8e6cc8e9b237c8df2e1bd4fea5739fd6c82a07ab83"
+      sha256: "33f8da08d16f9dae14fdbc2a9f71ec5b447f14d103b269f150269cb98bb5b535"
       url: "https://pub.dev"
     source: hosted
-    version: "0.3.0"
+    version: "0.3.1"
   native_dio_adapter:
     dependency: "direct main"
     description:

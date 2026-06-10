@@ -14,6 +14,7 @@ import '../models/ai_chat_message.dart';
 import '../models/prompt_preset.dart';
 import '../services/ai_chat_service.dart';
 import '../services/ai_chat_storage_service.dart';
+import '../services/ai_package_logger.dart';
 import '../services/ai_stream_http_client.dart';
 import '../services/dio_http_bridge.dart';
 import 'ai_provider_providers.dart';
@@ -688,7 +689,10 @@ class TopicAiChatNotifier extends StateNotifier<TopicAiChatState> {
       final apiKey =
           await AiProviderListNotifier.getApiKey(selectedModel.provider.id);
       if (!mounted) return;
-      if (apiKey == null) {
+      // null / 空白都视为未配置;避免空 key 发出去触发上游「200 + 空流」
+      // 的诡异失败(比如 anthropic_sdk_dart 检测到空 key 时根本不带
+      // x-api-key header,国内代理收到无 auth 请求会返回 200 空 body)。
+      if (apiKey == null || apiKey.trim().isEmpty) {
         _updateAssistantMessage(
           assistantMessage.id,
           content: '',
@@ -773,6 +777,7 @@ class TopicAiChatNotifier extends StateNotifier<TopicAiChatState> {
       // factory 在开「跟随应用网络配置」时会包装应用网络栈，
       // 避免直接 http.Client() 绕过代理。
       _requestClient = requestClientFactory();
+      final stats = ChatStreamStats();
       final stream = chatService.sendChatStream(
         provider: selectedModel.provider,
         model: selectedModel.model.id,
@@ -783,6 +788,7 @@ class TopicAiChatNotifier extends StateNotifier<TopicAiChatState> {
         imagePromptContext: imagePromptContext,
         imageAspect: imageAspect,
         requestClient: _requestClient,
+        stats: stats,
       );
 
       final textBuffer = StringBuffer();
@@ -899,9 +905,11 @@ class TopicAiChatNotifier extends StateNotifier<TopicAiChatState> {
               errorMessage: _buildEmptyResponseError(
                 provider: selectedModel.provider,
                 model: selectedModel.model.id,
+                apiKey: apiKey,
                 startedAt: streamStartedAt,
                 firstChunkAt: firstChunkAt,
                 chunkCount: chunkCount,
+                sdkEvents: stats.sdkEvents,
               ),
             );
           } else {
@@ -1292,26 +1300,37 @@ class TopicAiChatNotifier extends StateNotifier<TopicAiChatState> {
   ///
   /// 出现这个错说明 HTTP 流走到了 onDone 但一个 chunk 都没解析出有效内容。
   /// 用户截图反馈时这些字段能直接定位到真实根因：
-  /// - `chunks=0 + ttfb=null`：流连第一个字节都没收到（HTTP 层或 client 被截断）
-  /// - `chunks>0 + bufferEmpty`：收到字节但 SSE 解析出来是空（上游格式问题）
-  /// - `duration ≈ 15s ± 1s`：典型 dart:io idleTimeout 触发
-  /// - `duration ≈ 60s`：典型 URLSession requestTimeout
-  /// - `duration < 1s + chunks=0`：服务端立即关流（key/余额/auth 问题）
+  /// - `chunks=0 ttfb=null sdkEvents=0`:服务端真没发任何 SSE event
+  ///   - duration < 1s → key 失效 / auth / 计费 / 上游 ban / 模型不存在
+  ///   - duration ≈ 15s → dart:io idleTimeout 触发
+  ///   - duration ≈ 60s → URLSession requestTimeout
+  /// - `chunks=0 sdkEvents>0`:SDK 收到了 event 但全被解析忽略
+  ///   (上游协议字段不标准 / SDK 版本太老不识别新 event type)
+  /// - `apiKeyLen=0`:apiKey 是空串(Keychain 失效后读空 / 用户没配,
+  ///   anthropic_sdk_dart 此时不带 x-api-key,国内代理返回 200 空流)
+  ///
+  /// 诊断信息同时写到应用日志文件,debugPrint 在 release 下看不见,
+  /// 必须走 AppLogger 才能让用户提日志反馈时能查。
   String _buildEmptyResponseError({
     required AiProvider provider,
     required String model,
+    required String apiKey,
     required DateTime startedAt,
     required DateTime? firstChunkAt,
     required int chunkCount,
+    required int sdkEvents,
   }) {
     final base = AiL10n.current.emptyResponseError;
     final now = DateTime.now();
     final durationMs = now.difference(startedAt).inMilliseconds;
     final ttfbMs = firstChunkAt?.difference(startedAt).inMilliseconds;
     final ttfb = ttfbMs == null ? 'null' : '${ttfbMs}ms';
-    return '$base\n\n[diag] provider=${provider.type.name} model=$model '
+    final diag = 'provider=${provider.type.name} model=$model '
         'duration=${durationMs}ms ttfb=$ttfb chunks=$chunkCount '
+        'sdkEvents=$sdkEvents apiKeyLen=${apiKey.length} '
         'platform=${_platformTag()}';
+    AiPackageLogger.warning('AiChat', 'emptyResponse $diag');
+    return '$base\n\n[diag] $diag';
   }
 
   String _platformTag() {

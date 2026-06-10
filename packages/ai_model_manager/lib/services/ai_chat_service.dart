@@ -65,6 +65,16 @@ class ImageGenerated extends AiChatChunk {
   bool get isPartial => partialImageIndex != null;
 }
 
+/// 流式请求的诊断统计,sendChatStream 内部各 _stream 方法会写入。
+///
+/// 关键用途:emptyResponseError 拼诊断信息时区分「SDK 收到了多少 raw event」
+/// 和「上层收到了多少 yield 出去的 chunk」:
+/// - sdkEvents=0 → 服务端真的没发任何 SSE event
+/// - sdkEvents>0 但上层 chunks=0 → SDK 收到了但都被 default 吃了(协议不匹配)
+class ChatStreamStats {
+  int sdkEvents = 0;
+}
+
 /// AI 聊天服务：直接基于各 LLM provider 的 SDK 实现统一流式接口。
 ///
 /// - OpenAI / OpenAI Responses → `openai_dart` 4.x
@@ -103,6 +113,8 @@ class AiChatService {
     /// 可取消的 HTTP client。外部 close 后底层 HTTP 连接立即断开，
     /// 不再等 stream 自然结束。未传则 fallback 到 [bridgedClient]。
     http.Client? requestClient,
+    /// 可选的诊断统计对象,各 _stream 内部会写入 SDK 收到的原始 event 数。
+    ChatStreamStats? stats,
   }) {
     final effectiveClient = requestClient ?? bridgedClient;
     // OpenAI 系图像模型（gpt-image-* / dall-e-* / grok-2-image / cogview /
@@ -119,6 +131,7 @@ class AiChatService {
         contextSummary: imagePromptContext,
         imageAspect: imageAspect,
         httpClient: effectiveClient,
+        stats: stats,
       );
     }
     if (_isGeminiImageRoute(provider, model)) {
@@ -130,6 +143,7 @@ class AiChatService {
         contextSummary: imagePromptContext,
         imageAspect: imageAspect,
         httpClient: effectiveClient,
+        stats: stats,
       );
     }
     switch (provider.type) {
@@ -142,6 +156,7 @@ class AiChatService {
           systemPrompt: systemPrompt,
           thinkingConfig: thinkingConfig,
           httpClient: effectiveClient,
+          stats: stats,
         );
       case AiProviderType.openaiResponse:
         return _streamOpenAiResponses(
@@ -151,6 +166,7 @@ class AiChatService {
           messages: messages,
           systemPrompt: systemPrompt,
           httpClient: effectiveClient,
+          stats: stats,
         );
       case AiProviderType.gemini:
         return _streamGemini(
@@ -161,6 +177,7 @@ class AiChatService {
           systemPrompt: systemPrompt,
           thinkingConfig: thinkingConfig,
           httpClient: effectiveClient,
+          stats: stats,
         );
       case AiProviderType.anthropic:
         return _streamAnthropic(
@@ -171,6 +188,7 @@ class AiChatService {
           systemPrompt: systemPrompt,
           thinkingConfig: thinkingConfig,
           httpClient: effectiveClient,
+          stats: stats,
         );
     }
   }
@@ -206,6 +224,7 @@ class AiChatService {
     String? systemPrompt,
     ThinkingConfig thinkingConfig = const ThinkingConfig(),
     http.Client? httpClient,
+    ChatStreamStats? stats,
   }) async* {
     final client = _createOpenAIClient(baseUrl, apiKey, httpClient: httpClient);
     try {
@@ -222,6 +241,7 @@ class AiChatService {
         await for (final event in client.chat.completions.createStream(
           request,
         )) {
+          stats?.sdkEvents++;
           final delta = event.choices?.firstOrNull?.delta;
           if (delta != null) {
             final text = delta.content;
@@ -297,6 +317,7 @@ class AiChatService {
     String? contextSummary,
     String? imageAspect,
     http.Client? httpClient,
+    ChatStreamStats? stats,
   }) async* {
     // 提取最后一条 user 消息作为 prompt
     AiChatMessage? lastUser;
@@ -341,6 +362,7 @@ class AiChatService {
                   size: size,
                 ),
               ),
+              stats: stats,
             );
           } else {
             // 504/502/503 自动重试 3 次（绕过 openai_dart 4.x 对 POST 不重试的限制）
@@ -366,6 +388,7 @@ class AiChatService {
                   size: size,
                 ),
               ),
+              stats: stats,
             );
           } else {
             final response = await _withServerErrorRetry(() => client.images.generate(
@@ -421,9 +444,11 @@ class AiChatService {
 
   /// 消费 generateStream 事件流，把 partial 帧和终态帧统一映射成 [ImageGenerated]
   Stream<AiChatChunk> _consumeImageGenStream(
-    Stream<o.ImageGenStreamEvent> stream,
-  ) async* {
+    Stream<o.ImageGenStreamEvent> stream, {
+    ChatStreamStats? stats,
+  }) async* {
     await for (final event in stream) {
+      stats?.sdkEvents++;
       switch (event) {
         case o.ImageGenPartialImageEvent e:
           final mime = _outputFormatToMime(e.outputFormat);
@@ -449,9 +474,11 @@ class AiChatService {
 
   /// 消费 editStream 事件流，同 [_consumeImageGenStream] 风格
   Stream<AiChatChunk> _consumeImageEditStream(
-    Stream<o.ImageEditStreamEvent> stream,
-  ) async* {
+    Stream<o.ImageEditStreamEvent> stream, {
+    ChatStreamStats? stats,
+  }) async* {
     await for (final event in stream) {
+      stats?.sdkEvents++;
       switch (event) {
         case o.ImageEditPartialImageEvent e:
           final mime = _outputFormatToMime(e.outputFormat);
@@ -605,6 +632,7 @@ class AiChatService {
     required List<AiChatMessage> messages,
     String? systemPrompt,
     http.Client? httpClient,
+    ChatStreamStats? stats,
   }) async* {
     final client = _createOpenAIClient(baseUrl, apiKey, httpClient: httpClient);
     try {
@@ -617,6 +645,7 @@ class AiChatService {
       int? responseTokens;
       try {
         await for (final event in client.responses.createStream(request)) {
+          stats?.sdkEvents++;
           switch (event) {
             case final o.OutputTextDeltaEvent e:
               if (e.delta.isNotEmpty) yield TextDelta(e.delta);
@@ -666,6 +695,7 @@ class AiChatService {
     String? systemPrompt,
     ThinkingConfig thinkingConfig = const ThinkingConfig(),
     http.Client? httpClient,
+    ChatStreamStats? stats,
   }) async* {
     final client = g.GoogleAIClient(
       config: g.GoogleAIConfig(
@@ -696,6 +726,7 @@ class AiChatService {
           model: model,
           request: request,
         )) {
+          stats?.sdkEvents++;
           final parts = response.candidates?.firstOrNull?.content?.parts ?? [];
           for (final part in parts) {
             if (part is g.TextPart && part.text.isNotEmpty) {
@@ -743,6 +774,7 @@ class AiChatService {
     String? contextSummary,
     String? imageAspect,
     http.Client? httpClient,
+    ChatStreamStats? stats,
   }) async* {
     AiChatMessage? lastUser;
     for (var i = messages.length - 1; i >= 0; i--) {
@@ -795,6 +827,7 @@ class AiChatService {
           model: model,
           request: request,
         )) {
+          stats?.sdkEvents++;
           final parts =
               response.candidates?.firstOrNull?.content?.parts ?? const [];
           for (final part in parts) {
@@ -844,6 +877,7 @@ class AiChatService {
     String? systemPrompt,
     ThinkingConfig thinkingConfig = const ThinkingConfig(),
     http.Client? httpClient,
+    ChatStreamStats? stats,
   }) async* {
     final client = a.AnthropicClient(
       apiKey: apiKey,
@@ -877,6 +911,7 @@ class AiChatService {
     int? cachedTokens;
     try {
       await for (final event in client.createMessageStream(request: request)) {
+        stats?.sdkEvents++;
         switch (event) {
           case final a.MessageStartEvent e:
             promptTokens = e.message.usage?.inputTokens;

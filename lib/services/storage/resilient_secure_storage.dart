@@ -10,7 +10,7 @@ class ResilientSecureStorage {
   }) : _secureStorage =
            secureStorage ??
            const FlutterSecureStorage(
-             mOptions: MacOsOptions(useDataProtectionKeyChain: false),
+             mOptions: MacOsOptions(usesDataProtectionKeychain: false),
            ),
        _fallbackPrefix = fallbackPrefix;
 

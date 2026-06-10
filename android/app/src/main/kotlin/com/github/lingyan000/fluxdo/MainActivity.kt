@@ -11,6 +11,8 @@ import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
@@ -22,9 +24,6 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : FlutterActivity() {
@@ -44,7 +43,7 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.github.lingyan000.fluxdo/browser"
     private val CRASHLYTICS_CHANNEL = "com.github.lingyan000.fluxdo/crashlytics"
     private val ICON_CHANNEL = "com.github.lingyan000.fluxdo/app_icon"
-    private val ioExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -135,13 +134,18 @@ class MainActivity : FlutterActivity() {
                 // 暴力穷举删除指定 name 的所有变体
                 // 依据 §3.3.2: Android 删除变体必须 Domain 属性精确匹配
                 // 依据 §3.3.3: Android 无法精确枚举变体, 只能穷举候选组合
+                //
+                // 注意: CookieManager.setCookie(url, value, ValueCallback) 必须在
+                // 带 Looper 的线程上调用 (否则抛 IllegalStateException), 因此整段
+                // 调度必须 post 到 main thread; 同时用 AtomicInteger 计数代替
+                // CountDownLatch, 避免在 main thread 上 await 阻塞。
                 "nukeAllVariants" -> {
                     val url = call.argument<String>("url")
                     val name = call.argument<String>("name")
                     val domainCandidates = call.argument<List<String?>>("domainCandidates")
                     val pathCandidates = call.argument<List<String>>("pathCandidates")
                     if (url != null && name != null && domainCandidates != null && pathCandidates != null) {
-                        ioExecutor.execute {
+                        mainHandler.post {
                             try {
                                 val mgr = WebCookieManager.getInstance()
                                 val combinations = mutableListOf<Pair<String?, String>>()
@@ -150,7 +154,11 @@ class MainActivity : FlutterActivity() {
                                         combinations.add(Pair(domain, path))
                                     }
                                 }
-                                val latch = CountDownLatch(combinations.size)
+                                if (combinations.isEmpty()) {
+                                    result.success(0)
+                                    return@post
+                                }
+                                val remaining = AtomicInteger(combinations.size)
                                 val deletedCount = AtomicInteger(0)
                                 for ((domain, path) in combinations) {
                                     val attrs = mutableListOf("$name=", "Max-Age=0", "Path=$path")
@@ -158,12 +166,12 @@ class MainActivity : FlutterActivity() {
                                     val rawCookie = attrs.joinToString("; ")
                                     mgr.setCookie(url, rawCookie) { success ->
                                         if (success == true) deletedCount.incrementAndGet()
-                                        latch.countDown()
+                                        if (remaining.decrementAndGet() == 0) {
+                                            mgr.flush()
+                                            result.success(deletedCount.get())
+                                        }
                                     }
                                 }
-                                latch.await(2, TimeUnit.SECONDS)
-                                mgr.flush()
-                                result.success(deletedCount.get())
                             } catch (e: Exception) {
                                 Log.e("RawCookie", "nukeAllVariants failed: ${e.message}", e)
                                 result.success(0)

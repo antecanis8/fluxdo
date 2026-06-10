@@ -186,6 +186,7 @@ class _FakeAiChatService extends AiChatService {
     String? imagePromptContext,
     String? imageAspect,
     http.Client? requestClient,
+    ChatStreamStats? stats,
   }) {
     return _onSend(systemPrompt: systemPrompt, messages: messages);
   }
