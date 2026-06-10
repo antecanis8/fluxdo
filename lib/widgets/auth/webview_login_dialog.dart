@@ -69,6 +69,7 @@ Future<WebViewLoginDialogResult?> showWebViewLoginDialog(
   required String identifier,
   required String password,
   required Future<String?> Function(WebViewLoginNeed2FA need) onNeedSecondFactor,
+  String? hcaptchaCreateEndpoint,
 }) {
   return showDialog<WebViewLoginDialogResult>(
     context: context,
@@ -79,6 +80,7 @@ Future<WebViewLoginDialogResult?> showWebViewLoginDialog(
       identifier: identifier,
       password: password,
       onNeedSecondFactor: onNeedSecondFactor,
+      hcaptchaCreateEndpoint: hcaptchaCreateEndpoint,
     ),
   );
 }
@@ -89,12 +91,14 @@ class _WebViewLoginDialog extends StatefulWidget {
     required this.identifier,
     required this.password,
     required this.onNeedSecondFactor,
+    this.hcaptchaCreateEndpoint,
   });
 
   final String siteKey;
   final String identifier;
   final String password;
   final Future<String?> Function(WebViewLoginNeed2FA need) onNeedSecondFactor;
+  final String? hcaptchaCreateEndpoint;
 
   @override
   State<_WebViewLoginDialog> createState() => _WebViewLoginDialogState();
@@ -110,6 +114,21 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
   /// data:url 内嵌页面: hcaptcha widget + 登录全流程 JS。
   /// baseUrl=linux.do 让文档 origin 为 linux.do, JS fetch 相对路径同源,
   /// `credentials:'include'` 自动带共享 store 里的 cf_clearance/_forum_session。
+  /// hcaptcha verify endpoint 候选: caller (从 Preferences) 优先, 然后
+   /// `/captcha/hcaptcha/create.json` (linux.do 当前路径), 最后
+   /// `/hcaptcha/create.json` (Discourse plugin 原生路径)。
+   /// 按顺序尝试, 第一个非 404/network-error 的就用。站长改 mount 时只需要
+   /// 在 fluxdo 设置里填新 endpoint, 不用发版。
+   List<String> get _hcaptchaCreateEndpoints {
+     final configured = widget.hcaptchaCreateEndpoint?.trim();
+     final list = <String>[
+       if (configured != null && configured.isNotEmpty) configured,
+       '/captcha/hcaptcha/create.json',
+       '/hcaptcha/create.json',
+     ];
+     return list.toSet().toList(); // 去重保序
+   }
+
   String get _inlineHtml {
     final scheme = Theme.of(context).colorScheme;
     String hex(Color c) =>
@@ -117,6 +136,7 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
     final titleColor = hex(scheme.onSurface);
     final subColor = hex(scheme.onSurfaceVariant);
     final accent = hex(scheme.primary);
+    final endpointsJson = jsonEncode(_hcaptchaCreateEndpoints);
     return '''
 <!DOCTYPE html>
 <html>
@@ -173,19 +193,37 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
         if (c.status !== 200) { return done({ phase: 'csrf', status: c.status, body: await c.text() }); }
         var csrf = (await c.json()).csrf;
 
-        // 2. hcaptcha/create — 仅首次 (有 token) 调; 2FA 重试 token=null 跳过
+        // 2. hcaptcha/create — 仅首次 (有 token) 调; 2FA 重试 token=null 跳过。
+        //    按 endpoint 列表顺序尝试: caller 配置 → /captcha/hcaptcha/create.json → /hcaptcha/create.json
+        //    任意一个返 200 即成功, 其他 (404 / 网络错误) 继续 fallback。
         if (hcaptchaToken) {
-          var h = await fetch('/hcaptcha/create.json', {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'X-CSRF-Token': csrf,
-              'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: 'token=' + encodeURIComponent(hcaptchaToken)
-          });
-          if (h.status !== 200) { return done({ phase: 'hcaptcha', status: h.status, body: await h.text() }); }
+          var hcaptchaEndpoints = $endpointsJson;
+          var hcaptchaOk = false;
+          var hcaptchaLast = null;
+          for (var i = 0; i < hcaptchaEndpoints.length; i++) {
+            var ep = hcaptchaEndpoints[i];
+            try {
+              var h = await fetch(ep, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                  'X-CSRF-Token': csrf,
+                  'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: 'token=' + encodeURIComponent(hcaptchaToken)
+              });
+              hcaptchaLast = { endpoint: ep, status: h.status, body: await h.text() };
+              if (h.status === 200) { hcaptchaOk = true; break; }
+              // 404 视为路径不对, 继续 fallback
+              if (h.status !== 404) break;
+            } catch (e) {
+              hcaptchaLast = { endpoint: ep, status: 0, body: String(e) };
+            }
+          }
+          if (!hcaptchaOk) {
+            return done({ phase: 'hcaptcha', status: hcaptchaLast ? hcaptchaLast.status : 0, body: 'tried=' + JSON.stringify(hcaptchaEndpoints) + ' last=' + JSON.stringify(hcaptchaLast) });
+          }
         }
 
         // 3. session.json — 真正登录

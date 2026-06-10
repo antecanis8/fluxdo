@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/s.dart';
 import '../services/cf_challenge_service.dart';
@@ -152,6 +153,14 @@ class _LoginPageState extends State<LoginPage>
     }
     if (!mounted) return false;
 
+    // hcaptcha endpoint: 从 SharedPreferences 拿 (站长改 mount 时填到设置里);
+    // 没配就让 dialog 用内置 fallback 列表 (/captcha/hcaptcha/create.json →
+    // /hcaptcha/create.json)。读 prefs 直接走 SharedPreferences (不依赖
+    // riverpod, LoginPage 是普通 StatefulWidget)。
+    final prefs = await SharedPreferences.getInstance();
+    final hcaptchaEndpoint = prefs.getString('pref_hcaptcha_create_endpoint');
+    if (!mounted) return false;
+
     // Step 1-3: WebView 内 JS 全流程登录 (csrf → hcaptcha/create → session)。
     // 三个请求都由 WebView 内核发出, TLS/JA3 指纹与 CF 签发 cf_clearance 时一致,
     // 避开 dio (IO/rhttp 适配器) 指纹不匹配导致的 403 (BAD CSRF)。
@@ -161,6 +170,7 @@ class _LoginPageState extends State<LoginPage>
       siteKey: _kLinuxDoHcaptchaSiteKey,
       identifier: identifier,
       password: password,
+      hcaptchaCreateEndpoint: hcaptchaEndpoint,
       onNeedSecondFactor: (need) => showTwoFactorDialog(
         context,
         hint: need.totpEnabled

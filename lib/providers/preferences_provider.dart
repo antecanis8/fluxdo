@@ -146,6 +146,11 @@ class AppPreferences {
   /// 发帖前 AI 审核使用的模型 key（providerId:modelId）
   final String? aiPostReviewModelKey;
 
+  /// hcaptcha 验证 POST endpoint 覆盖。null = 用内置 fallback 列表 (尝试
+  /// `/captcha/hcaptcha/create.json` → `/hcaptcha/create.json`)。
+  /// 站长改 mount path 时不发版即可改这里。
+  final String? hcaptchaCreateEndpoint;
+
   /// 对话框背景高斯模糊
   final bool dialogBlur;
 
@@ -222,6 +227,7 @@ class AppPreferences {
     required this.aiSwipeEntry,
     this.aiPostReviewEnabled = false,
     this.aiPostReviewModelKey,
+    this.hcaptchaCreateEndpoint,
     required this.dialogBlur,
     this.showSignatures = true,
     this.defaultNestedView = false,
@@ -264,6 +270,7 @@ class AppPreferences {
     bool? aiSwipeEntry,
     bool? aiPostReviewEnabled,
     Object? aiPostReviewModelKey = _unset,
+    Object? hcaptchaCreateEndpoint = _unset,
     bool? dialogBlur,
     bool? showSignatures,
     bool? defaultNestedView,
@@ -309,6 +316,9 @@ class AppPreferences {
       aiPostReviewModelKey: identical(aiPostReviewModelKey, _unset)
           ? this.aiPostReviewModelKey
           : aiPostReviewModelKey as String?,
+      hcaptchaCreateEndpoint: identical(hcaptchaCreateEndpoint, _unset)
+          ? this.hcaptchaCreateEndpoint
+          : hcaptchaCreateEndpoint as String?,
       dialogBlur: dialogBlur ?? this.dialogBlur,
       showSignatures: showSignatures ?? this.showSignatures,
       defaultNestedView: defaultNestedView ?? this.defaultNestedView,
@@ -365,6 +375,7 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
   static const String _aiSwipeEntryKey = 'pref_ai_swipe_entry';
   static const String _aiPostReviewEnabledKey = 'pref_ai_post_review_enabled';
   static const String _aiPostReviewModelPrefKey = 'pref_ai_post_review_model';
+  static const String _hcaptchaCreateEndpointKey = 'pref_hcaptcha_create_endpoint';
   static const String _dialogBlurKey = 'pref_dialog_blur';
   static const String _showSignaturesKey = 'pref_show_signatures';
   static const String _defaultNestedViewKey = 'pref_default_nested_view';
@@ -425,6 +436,7 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
           aiSwipeEntry: _prefs.getBool(_aiSwipeEntryKey) ?? false,
           aiPostReviewEnabled: _prefs.getBool(_aiPostReviewEnabledKey) ?? false,
           aiPostReviewModelKey: _prefs.getString(_aiPostReviewModelPrefKey),
+          hcaptchaCreateEndpoint: _prefs.getString(_hcaptchaCreateEndpointKey),
           dialogBlur: _prefs.getBool(_dialogBlurKey) ?? true,
           showSignatures: _prefs.getBool(_showSignaturesKey) ?? true,
           defaultNestedView: _prefs.getBool(_defaultNestedViewKey) ?? false,
