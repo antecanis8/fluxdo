@@ -40,6 +40,42 @@ class _EmojiStickerPanelState extends State<EmojiStickerPanel> {
   /// 滚动累积量，正值=向下滚动，负值=向上滚动
   double _scrollDelta = 0;
 
+  /// 两个 picker 页面的实例缓存。
+  ///
+  /// 悬浮 Tab 显隐(滚动阈值触发)和翻页都会 setState ——
+  /// 如果每次 build 都 new EmojiPicker/StickerPicker,这些 setState 会让
+  /// PageView 子树整体 rebuild,grid 里几百个 cell 在滚动中途一帧内全部
+  /// 重建,体感就是"滚一段卡一下"。缓存实例后 updateChild 直接跳过子树。
+  List<Widget>? _pages;
+  double? _pagesBottomPadding;
+
+  List<Widget> _buildPages(double bottomPadding) {
+    if (_pages == null || _pagesBottomPadding != bottomPadding) {
+      _pagesBottomPadding = bottomPadding;
+      _pages = [
+        EmojiPicker(
+          onEmojiSelected: widget.onEmojiSelected,
+          bottomPadding: bottomPadding,
+        ),
+        StickerPicker(
+          onStickerSelected: widget.onStickerSelected,
+          bottomPadding: bottomPadding,
+        ),
+      ];
+    }
+    return _pages!;
+  }
+
+  @override
+  void didUpdateWidget(EmojiStickerPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 回调变了必须重建缓存页,否则点选回调指向旧闭包
+    if (widget.onEmojiSelected != oldWidget.onEmojiSelected ||
+        widget.onStickerSelected != oldWidget.onStickerSelected) {
+      _pages = null;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -100,16 +136,7 @@ class _EmojiStickerPanelState extends State<EmojiStickerPanel> {
                 _scrollDelta = 0;
               });
             },
-            children: [
-              EmojiPicker(
-                onEmojiSelected: widget.onEmojiSelected,
-                bottomPadding: totalBottomPadding,
-              ),
-              StickerPicker(
-                onStickerSelected: widget.onStickerSelected,
-                bottomPadding: totalBottomPadding,
-              ),
-            ],
+            children: _buildPages(totalBottomPadding),
           ),
         ),
 

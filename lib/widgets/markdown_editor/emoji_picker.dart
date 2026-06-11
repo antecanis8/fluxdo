@@ -268,9 +268,12 @@ class _EmojiPickerState extends ConsumerState<EmojiPicker>
           key: _contentAreaKey,
           child: CustomScrollView(
             controller: _scrollController,
-            // 500px ≈ 1 屏,off-screen 来不及预 build。1500px 让 ~3 屏 widget
-            // 提前 ready,enter viewport 不卡 + emoji 提前下载好。
-            scrollCacheExtent: ScrollCacheExtent.pixels(1500),
+            // 预 build 屏外内容,滚动到时 widget 已 ready、图已在加载。
+            // 注意别贪大:cell 行高 ~48px、~10 列,这个值每 +500px 就是
+            // 面板挂载那一帧多 build ~100 个 cell(InkWell+Tooltip+Image),
+            // 直接加重"打开面板顿一下"。emoji 是小 PNG + 磁盘索引 O(1),
+            // 加载本身很快,800px(~2 屏)足够掩护滚动。
+            scrollCacheExtent: ScrollCacheExtent.pixels(800),
             slivers: _buildSlivers(
                 emojiGroups, groupKeys, hasRecent, recentEmojis),
           ),

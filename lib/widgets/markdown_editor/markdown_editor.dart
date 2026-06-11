@@ -102,6 +102,17 @@ class MarkdownEditorState extends ConsumerState<MarkdownEditor> {
   // 用于防止焦点变化导致的面板状态竞争
   EditorPanelType _intendedPanel = EditorPanelType.none;
 
+  /// EmojiStickerPanel 实例缓存。
+  ///
+  /// ChatBottomPanelContainer 每次 build 都会回调 otherPanelWidget 重新生成
+  /// 面板 widget;如果每次都 new 一个 EmojiStickerPanel,编辑器任何 setState
+  /// (键盘动画、草稿状态、预览切换…)都会级联重建整个 emoji grid ——
+  /// viewport + cacheExtent 内几百个 cell 一帧内全部 rebuild,面板必卡。
+  /// 缓存同一实例后,Element.updateChild 看到 identical widget 直接跳过
+  /// 整棵子树。回调闭包只捕获 state 成员(_focusNode/_toolbarKey),
+  /// 生命周期内稳定,缓存安全。
+  Widget? _emojiPanelChild;
+
   @override
   void initState() {
     super.initState();
@@ -577,33 +588,36 @@ class MarkdownEditorState extends ConsumerState<MarkdownEditor> {
 
   /// 构建表情面板，高度与键盘一致
   Widget _buildEmojiPanel() {
+    // EmojiStickerPanel 只创建一次(见 _emojiPanelChild 注释);
+    // 高度变化只影响外层 SizedBox,不触达 grid 子树。
+    _emojiPanelChild ??= EmojiStickerPanel(
+      onEmojiSelected: (emoji) {
+        // 确保编辑器有焦点（搜索弹窗关闭后焦点可能丢失）
+        if (!_focusNode.hasFocus) {
+          _focusNode.requestFocus();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _toolbarKey.currentState?.insertText(':${emoji.name}:');
+          });
+        } else {
+          _toolbarKey.currentState?.insertText(':${emoji.name}:');
+        }
+      },
+      onStickerSelected: (markdown) {
+        if (!_focusNode.hasFocus) {
+          _focusNode.requestFocus();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _toolbarKey.currentState?.insertText(markdown);
+          });
+        } else {
+          _toolbarKey.currentState?.insertText(markdown);
+        }
+      },
+    );
     // TextFieldTapRegion 防止点击表情面板时 TextField 失焦
     return TextFieldTapRegion(
       child: SizedBox(
         height: _panelHeight,
-        child: EmojiStickerPanel(
-          onEmojiSelected: (emoji) {
-            // 确保编辑器有焦点（搜索弹窗关闭后焦点可能丢失）
-            if (!_focusNode.hasFocus) {
-              _focusNode.requestFocus();
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _toolbarKey.currentState?.insertText(':${emoji.name}:');
-              });
-            } else {
-              _toolbarKey.currentState?.insertText(':${emoji.name}:');
-            }
-          },
-          onStickerSelected: (markdown) {
-            if (!_focusNode.hasFocus) {
-              _focusNode.requestFocus();
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _toolbarKey.currentState?.insertText(markdown);
-              });
-            } else {
-              _toolbarKey.currentState?.insertText(markdown);
-            }
-          },
-        ),
+        child: _emojiPanelChild,
       ),
     );
   }
