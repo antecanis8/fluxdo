@@ -6,6 +6,7 @@ import '../models/search_filter.dart';
 import '../models/search_result.dart';
 import '../services/preloaded_data_service.dart';
 import '../widgets/common/smart_avatar.dart';
+import '../widgets/common/error_view.dart';
 import '../widgets/common/loading_spinner.dart';
 import '../widgets/search/search_filter_panel.dart';
 import '../widgets/search/search_post_card.dart';
@@ -54,8 +55,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   bool _hasMorePosts = false;
   bool _hasMoreUsers = false;
   bool _hasError = false;
+  Object? _searchError;
+  StackTrace? _searchErrorStack;
   bool _isLoadMoreFailed = false;
-  String _errorMessage = '';
 
   // 最近搜索记录
   List<String> _recentSearches = [];
@@ -411,7 +413,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         _isLoadingMore = false;
         _rebuildDisplayPosts();
       });
-    } catch (e) {
+    } catch (e, s) {
       setState(() {
         _isLoadingMore = false;
         if (isLoadMore) {
@@ -421,7 +423,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         } else {
           // 首次搜索失败：显示全局错误
           _hasError = true;
-          _errorMessage = e.toString();
+          _searchError = e;
+          _searchErrorStack = s;
         }
       });
     }
@@ -733,7 +736,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
   Widget _buildSearchResults(ThemeData theme) {
     if (_hasError && _allPosts.isEmpty) {
-      return _buildError(_errorMessage);
+      return ErrorView(
+        error: _searchError ?? Exception(context.l10n.search_error),
+        stackTrace: _searchErrorStack,
+        onRetry: _performSearch,
+      );
     }
 
     if (_allPosts.isEmpty && _allUsers.isEmpty && !_isLoadingMore) {
@@ -974,28 +981,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildError(String error) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-          const SizedBox(height: 16),
-          Text(context.l10n.search_error, style: theme.textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Text(
-            error,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
     );
   }
 

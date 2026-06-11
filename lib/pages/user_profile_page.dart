@@ -20,6 +20,7 @@ import '../utils/share_utils.dart';
 import '../providers/preferences_provider.dart';
 import '../widgets/common/flair_badge.dart';
 import '../widgets/common/grain_gradient_background.dart';
+import '../widgets/common/error_view.dart';
 import '../widgets/common/smart_avatar.dart';
 import '../widgets/content/discourse_html_content/discourse_html_content_widget.dart';
 import '../widgets/content/collapsed_html_content.dart';
@@ -54,7 +55,8 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage>
   User? _user;
   UserSummary? _summary;
   bool _isLoading = true;
-  String? _error;
+  Object? _error;
+  StackTrace? _errorStack;
 
   // 关注状态
   bool _isFollowed = false;
@@ -141,17 +143,17 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage>
         });
         // 总结 tab 数据已从 _summary 获取，无需额外加载
       }
-    } catch (e) {
+    } catch (e, s) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = e;
+          _errorStack = s;
           _isLoading = false;
         });
       }
     }
   }
 
-  /// 切换关注状态
   Future<void> _toggleFollow() async {
     if (_user == null || _isFollowLoading) return;
 
@@ -736,7 +738,18 @@ class _UserProfilePageState extends ConsumerState<UserProfilePage>
     if (_error != null) {
       return Scaffold(
         appBar: AppBar(title: Text(widget.username)),
-        body: Center(child: Text('${context.l10n.common_loadFailed}: $_error')),
+        body: ErrorView(
+          error: _error!,
+          stackTrace: _errorStack,
+          onRetry: () {
+            setState(() {
+              _isLoading = true;
+              _error = null;
+              _errorStack = null;
+            });
+            _loadUser();
+          },
+        ),
       );
     }
 

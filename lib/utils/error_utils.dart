@@ -13,10 +13,15 @@ class ErrorInfo {
   final String title;
   final String message;
 
+  /// 是否属于网络类错误（断网、超时、连接失败、证书错误等）。
+  /// UI 层可据此决定是否提供"打开网络设置"等快捷入口。
+  final bool isNetworkError;
+
   const ErrorInfo({
     required this.icon,
     required this.title,
     required this.message,
+    this.isNetworkError = false,
   });
 }
 
@@ -39,6 +44,7 @@ class ErrorUtils {
         icon: Icons.speed_rounded,
         title: S.current.error_tooManyRequests,
         message: error.toString(),
+        isNetworkError: true,
       );
     }
     if (error is ServerException) {
@@ -46,9 +52,11 @@ class ErrorUtils {
         icon: Icons.cloud_off_rounded,
         title: S.current.error_serverUnavailable,
         message: error.toString(),
+        isNetworkError: true,
       );
     }
     if (error is CfChallengeException) {
+      // CF 验证有专门的"立即验证"入口,不再叠加网络设置按钮.
       return ErrorInfo(
         icon: Icons.shield_rounded,
         title: S.current.error_securityChallenge,
@@ -72,6 +80,7 @@ class ErrorUtils {
           icon: Icons.speed_rounded,
           title: S.current.error_tooManyRequests,
           message: innerError.toString(),
+          isNetworkError: true,
         );
       }
       if (innerError is ServerException) {
@@ -79,6 +88,7 @@ class ErrorUtils {
           icon: Icons.cloud_off_rounded,
           title: S.current.error_serverUnavailable,
           message: innerError.toString(),
+          isNetworkError: true,
         );
       }
       return _handleDioException(error);
@@ -90,6 +100,7 @@ class ErrorUtils {
         icon: Icons.signal_wifi_off_rounded,
         title: S.current.error_networkUnavailable,
         message: S.current.error_networkCheckSettings,
+        isNetworkError: true,
       );
     }
     if (error is TimeoutException) {
@@ -97,6 +108,7 @@ class ErrorUtils {
         icon: Icons.timer_off_rounded,
         title: S.current.error_connectionTimeout,
         message: S.current.error_requestTimeoutRetry,
+        isNetworkError: true,
       );
     }
     if (error is HttpException) {
@@ -104,6 +116,7 @@ class ErrorUtils {
         icon: Icons.public_off_rounded,
         title: S.current.error_requestFailed,
         message: S.current.error_networkRequestFailed,
+        isNetworkError: true,
       );
     }
     if (error is FormatException) {
@@ -184,24 +197,28 @@ class ErrorUtils {
           icon: Icons.timer_off_rounded,
           title: S.current.error_connectionTimeout,
           message: S.current.error_cannotConnectCheckNetwork,
+          isNetworkError: true,
         );
       case DioExceptionType.receiveTimeout:
         return ErrorInfo(
           icon: Icons.hourglass_disabled_rounded,
           title: S.current.error_responseTimeout,
           message: S.current.error_serverResponseTooLong,
+          isNetworkError: true,
         );
       case DioExceptionType.connectionError:
         return ErrorInfo(
           icon: Icons.signal_wifi_off_rounded,
           title: S.current.error_networkUnavailable,
           message: S.current.error_networkCheckSettings,
+          isNetworkError: true,
         );
       case DioExceptionType.badCertificate:
         return ErrorInfo(
           icon: Icons.gpp_bad_rounded,
           title: S.current.error_certificateError,
           message: S.current.error_certificateVerifyFailed,
+          isNetworkError: true,
         );
       case DioExceptionType.cancel:
         return ErrorInfo(
@@ -216,6 +233,7 @@ class ErrorUtils {
             icon: Icons.signal_wifi_off_rounded,
             title: S.current.error_networkUnavailable,
             message: S.current.error_networkCheckSettings,
+            isNetworkError: true,
           );
         }
         // 检查错误信息中的网络错误模式（如 Chromium/Cronet 的 net:: 错误）
@@ -225,6 +243,7 @@ class ErrorUtils {
             icon: Icons.timer_off_rounded,
             title: S.current.error_connectionTimeout,
             message: S.current.error_cannotConnectCheckNetwork,
+            isNetworkError: true,
           );
         }
         if (errorStr.contains('CONNECTION_REFUSED') ||
@@ -239,6 +258,7 @@ class ErrorUtils {
             icon: Icons.signal_wifi_off_rounded,
             title: S.current.error_networkUnavailable,
             message: S.current.error_networkCheckSettings,
+            isNetworkError: true,
           );
         }
         if (errorStr.contains('SSL') ||
@@ -248,6 +268,7 @@ class ErrorUtils {
             icon: Icons.gpp_bad_rounded,
             title: S.current.error_certificateError,
             message: S.current.error_certificateVerifyFailed,
+            isNetworkError: true,
           );
         }
         // 尝试从响应中提取错误信息
@@ -336,12 +357,14 @@ class ErrorUtils {
           icon: Icons.speed_rounded,
           title: S.current.error_rateLimited,
           message: serverMessage ?? S.current.error_rateLimitedRetryLater,
+          isNetworkError: true,
         );
       case 500:
         return ErrorInfo(
           icon: Icons.cloud_off_rounded,
           title: S.current.error_serverError,
           message: serverMessage ?? S.current.error_internalServerError,
+          isNetworkError: true,
         );
       case 502:
       case 503:
@@ -350,6 +373,7 @@ class ErrorUtils {
           icon: Icons.cloud_off_rounded,
           title: S.current.error_serviceUnavailable,
           message: serverMessage ?? S.current.error_serviceUnavailableRetry,
+          isNetworkError: true,
         );
       default:
         return ErrorInfo(

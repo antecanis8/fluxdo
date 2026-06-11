@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/topic.dart';
 import '../../pages/topic_detail_page/topic_detail_page.dart';
 import '../../providers/discourse_providers.dart';
+import '../common/error_view.dart';
 import '../common/relative_time_text.dart';
 import '../markdown_editor/markdown_renderer.dart';
 import '../../../../../l10n/s.dart';
@@ -49,7 +50,11 @@ class TopicSummaryWidget extends ConsumerWidget {
           ),
           error: (error, stack) => KeyedSubtree(
             key: const ValueKey('error'),
-            child: _buildErrorState(theme, error, ref),
+            child: InlineErrorView(
+              error: error,
+              message: S.current.topic_summaryLoadFailed,
+              onRetry: () => ref.invalidate(topicSummaryProvider(topicId)),
+            ),
           ),
           data: (summary) {
             if (summary == null) {
@@ -91,38 +96,6 @@ class TopicSummaryWidget extends ConsumerWidget {
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorState(ThemeData theme, Object error, WidgetRef ref) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer.withValues(alpha:0.3),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.error_outline,
-            size: 20,
-            color: theme.colorScheme.error,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              S.current.topic_summaryLoadFailed,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.error,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () => ref.invalidate(topicSummaryProvider(topicId)),
-            child: Text(S.current.common_retry),
           ),
         ],
       ),

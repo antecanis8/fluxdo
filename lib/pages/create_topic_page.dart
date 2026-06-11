@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fluxdo/widgets/common/error_view.dart';
 import 'package:fluxdo/widgets/common/loading_spinner.dart';
 import 'package:fluxdo/widgets/markdown_editor/markdown_editor.dart';
 import 'package:fluxdo/models/category.dart';
@@ -793,10 +794,10 @@ class _CreateTopicPageState extends ConsumerState<CreateTopicPage> {
             );
           },
           loading: () => const Center(child: LoadingSpinner()),
-          error: (err, stack) => Center(
-            child: Text(
-              context.l10n.createTopic_loadCategoryFailed(err.toString()),
-            ),
+          error: (err, stack) => ErrorView(
+            error: err,
+            stackTrace: stack,
+            onRetry: () => ref.invalidate(categoriesProvider),
           ),
         ),
       ),

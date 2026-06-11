@@ -1951,7 +1951,11 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
 
       Widget nestedView = nestedAsync.when(
         loading: () => PostListSkeleton(withHeader: true),
-        error: (e, s) => Center(child: Text('$e')),
+        error: (e, s) => ErrorView(
+          error: e,
+          stackTrace: s,
+          onRetry: () => ref.invalidate(nestedTopicProvider(nestedParams)),
+        ),
         data: (nestedState) => NestedPostList(
           nestedState: nestedState,
           params: nestedParams,

@@ -21,6 +21,7 @@
   "error_networkCheckSettings": "Network connection failed, please check settings",
   "error_networkRequestFailed": "Network request failed",
   "error_networkUnavailable": "Network unavailable",
+  "error_openNetworkSettings": "Network Settings",
   "error_notFound": "Not found",
   "error_notFoundOrDeleted": "Content not found or deleted",
   "error_notLoggedInNoUsername": "Not logged in or cannot get username",

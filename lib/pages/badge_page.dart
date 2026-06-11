@@ -7,6 +7,7 @@ import '../widgets/common/relative_time_text.dart';
 import '../utils/font_awesome_helper.dart';
 import '../services/discourse_cache_manager.dart';
 import '../utils/url_helper.dart';
+import '../widgets/common/error_view.dart';
 import '../widgets/common/loading_spinner.dart';
 import '../widgets/badge/badge_ui_utils.dart';
 import '../widgets/content/discourse_html_content/discourse_html_content_widget.dart';
@@ -36,7 +37,8 @@ class _BadgePageState extends ConsumerState<BadgePage> {
   final DiscourseService _service = DiscourseService();
   BadgeDetailResponse? _badgeDetail;
   bool _isLoading = true;
-  String? _error;
+  Object? _error;
+  StackTrace? _errorStack;
 
   @override
   void initState() {
@@ -48,6 +50,7 @@ class _BadgePageState extends ConsumerState<BadgePage> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _errorStack = null;
     });
 
     try {
@@ -68,11 +71,12 @@ class _BadgePageState extends ConsumerState<BadgePage> {
           _isLoading = false;
         });
       }
-    } catch (e) {
+    } catch (e, s) {
       debugPrint('Error loading badge detail: $e');
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = e;
+          _errorStack = s;
           _isLoading = false;
         });
       }
@@ -89,20 +93,10 @@ class _BadgePageState extends ConsumerState<BadgePage> {
       body: _isLoading
           ? const Center(child: LoadingSpinner())
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 64, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      Text('${context.l10n.common_loadFailed}: $_error', style: const TextStyle(color: Colors.grey)),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _onRefresh,
-                        child: Text(context.l10n.common_retry),
-                      ),
-                    ],
-                  ),
+              ? ErrorView(
+                  error: _error!,
+                  stackTrace: _errorStack,
+                  onRetry: _onRefresh,
                 )
               : RefreshIndicator(
                   onRefresh: _onRefresh,

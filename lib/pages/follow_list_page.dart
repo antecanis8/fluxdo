@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/user.dart';
 import '../providers/discourse_providers.dart';
+import '../widgets/common/error_view.dart';
 import '../widgets/common/smart_avatar.dart';
 import 'user_profile_page.dart';
 import '../l10n/s.dart';
@@ -24,7 +25,8 @@ class FollowListPage extends ConsumerStatefulWidget {
 class _FollowListPageState extends ConsumerState<FollowListPage> {
   List<FollowUser>? _users;
   bool _isLoading = true;
-  String? _error;
+  Object? _error;
+  StackTrace? _errorStack;
 
   @override
   void initState() {
@@ -36,6 +38,7 @@ class _FollowListPageState extends ConsumerState<FollowListPage> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _errorStack = null;
     });
 
     try {
@@ -50,10 +53,11 @@ class _FollowListPageState extends ConsumerState<FollowListPage> {
           _isLoading = false;
         });
       }
-    } catch (e) {
+    } catch (e, s) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = e;
+          _errorStack = s;
           _isLoading = false;
         });
       }
@@ -71,7 +75,11 @@ class _FollowListPageState extends ConsumerState<FollowListPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text('${context.l10n.common_loadFailed}: $_error'))
+              ? ErrorView(
+                  error: _error!,
+                  stackTrace: _errorStack,
+                  onRetry: _loadUsers,
+                )
               : _users == null || _users!.isEmpty
                   ? Center(
                       child: Column(

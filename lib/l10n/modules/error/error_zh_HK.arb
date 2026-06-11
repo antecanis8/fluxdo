@@ -21,6 +21,7 @@
   "error_networkCheckSettings": "網絡連接失敗，請檢查網絡設置",
   "error_networkRequestFailed": "網絡請求失敗",
   "error_networkUnavailable": "網絡不可用",
+  "error_openNetworkSettings": "網絡設置",
   "error_notFound": "內容不存在",
   "error_notFoundOrDeleted": "內容不存在或已被刪除",
   "error_notLoggedInNoUsername": "未登錄或無法獲取用户名",
