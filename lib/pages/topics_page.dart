@@ -245,7 +245,9 @@ class _TopicsPageState extends ConsumerState<TopicsPage>
     if (result == true && mounted) {
       LoadingDialog.show(context, message: context.l10n.common_loadingData);
 
-      AppStateRefresher.refreshAll(ref);
+      AppStateRefresher.refreshAll(
+        ProviderScope.containerOf(context, listen: false),
+      );
 
       try {
         await Future.wait([

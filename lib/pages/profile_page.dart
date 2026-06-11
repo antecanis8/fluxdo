@@ -175,7 +175,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     if (result == true && mounted) {
       LoadingDialog.show(context, message: context.l10n.profile_loadingData);
 
-      AppStateRefresher.refreshAll(ref);
+      AppStateRefresher.refreshAll(
+        ProviderScope.containerOf(context, listen: false),
+      );
 
       try {
         await Future.wait([
@@ -219,7 +221,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
       await ref.read(discourseServiceProvider).logout(callApi: true);
       if (mounted) {
-        await AppStateRefresher.resetForLogout(ref);
+        await AppStateRefresher.resetForLogout(
+          ProviderScope.containerOf(context, listen: false),
+        );
       }
 
       if (mounted) {

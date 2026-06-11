@@ -686,7 +686,9 @@ class _MainPageState extends ConsumerState<MainPage>
     ) {
       next.whenData((_) {
         if (mounted) {
-          AppStateRefresher.refreshAll(ref);
+          AppStateRefresher.refreshAll(
+            ProviderScope.containerOf(context, listen: false),
+          );
         }
       });
     });
@@ -1022,7 +1024,9 @@ class _MainPageState extends ConsumerState<MainPage>
     );
 
     if (mounted) {
-      await AppStateRefresher.resetForLogout(ref);
+      await AppStateRefresher.resetForLogout(
+        ProviderScope.containerOf(context, listen: false),
+      );
     }
     if (mounted) {
       setState(() => _currentIndex = 0);

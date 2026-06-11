@@ -25,9 +25,12 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
 
   Future<void> _completeOnboarding() async {
     final prefs = ref.read(sharedPreferencesProvider);
+    // 先取出 container，避免 await 后 widget unmount 再访问 context 报错
+    final container = ProviderScope.containerOf(context, listen: false);
     await prefs.setBool('onboarding_completed', true);
     // 刷新所有状态，确保登录后数据正确加载
-    AppStateRefresher.refreshAll(ref);
+    AppStateRefresher.refreshAll(container);
+    if (!mounted) return;
     setState(() => _hasCompletedOnboarding = true);
   }
 

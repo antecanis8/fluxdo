@@ -188,8 +188,9 @@ class _CacheManagementSectionState
 
   /// 清除 Cookie，并同步执行退出登录链路的状态销毁。
   Future<void> _doClearCookies() async {
+    final container = ProviderScope.containerOf(context, listen: false);
     await ref.read(discourseServiceProvider).logout(callApi: false);
-    await AppStateRefresher.resetForLogout(ref);
+    await AppStateRefresher.resetForLogout(container);
   }
 
   Future<bool?> _showConfirmDialog({
