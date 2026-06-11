@@ -3,10 +3,17 @@ part of 'discourse_service.dart';
 /// 帖子相关
 mixin _PostsMixin on _DiscourseServiceBase {
   /// 创建回复
+  ///
+  /// 带上 [draftKey] 时,服务端在 [PostCreator] 里会 `DraftSequence.next!`
+  /// 推进 sequence(对齐 Discourse 前端 composer.js `_create_serializer` 的
+  /// `draft_key` 字段)。响应里的 `target.draft_sequence` 经由 [onDraftSequence]
+  /// 回写到本地 `DraftController`,避免发送后用户继续打字触发的草稿保存撞 409。
   Future<Post> createReply({
     required int topicId,
     required String raw,
     int? replyToPostNumber,
+    String? draftKey,
+    ValueChanged<int>? onDraftSequence,
   }) async {
     final data = <String, dynamic>{
       'topic_id': topicId,
@@ -15,6 +22,9 @@ mixin _PostsMixin on _DiscourseServiceBase {
 
     if (replyToPostNumber != null) {
       data['reply_to_post_number'] = replyToPostNumber;
+    }
+    if (draftKey != null) {
+      data['draft_key'] = draftKey;
     }
 
     final response = await _dio.post(
@@ -30,6 +40,17 @@ mixin _PostsMixin on _DiscourseServiceBase {
       throw PostEnqueuedException(
         pendingCount: respData['pending_count'] as int? ?? 0,
       );
+    }
+
+    if (respData is Map) {
+      // 服务端 PostsController 通过 PostSerializer.draft_sequence 把推进后的
+      // sequence 挂在响应的 target 里(对齐 composer.js:1382)
+      final target = respData['target'];
+      final seq = (target is Map ? target['draft_sequence'] : null) ??
+          respData['draft_sequence'];
+      if (seq is int) {
+        onDraftSequence?.call(seq);
+      }
     }
 
     if (respData is Map && respData.containsKey('post') && respData['post'] != null) {

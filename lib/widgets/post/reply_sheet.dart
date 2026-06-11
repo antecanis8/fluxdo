@@ -411,6 +411,9 @@ class _ReplySheetState extends ConsumerState<ReplySheet> {
     }
 
     setState(() => _isSubmitting = true);
+    // 对齐 Discourse 前端 composer.set("disableDrafts", true):
+    // 发送途中关掉自动保存,避免与 PostCreator 推进的 draft_sequence 撞 409
+    _draftController?.disable();
 
     try {
       if (_isEditMode) {
@@ -426,6 +429,8 @@ class _ReplySheetState extends ConsumerState<ReplySheet> {
           targetUsernames: [widget.targetUsername!],
           title: _titleController.text.trim(),
           raw: content,
+          draftKey: _draftController?.draftKey,
+          onDraftSequence: (seq) => _draftController?.syncSequence(seq),
         );
         // 发送成功后删除草稿
         await _draftController?.deleteDraft();
@@ -438,6 +443,8 @@ class _ReplySheetState extends ConsumerState<ReplySheet> {
           topicId: widget.topicId!,
           raw: content,
           replyToPostNumber: widget.replyToPost?.postNumber,
+          draftKey: _draftController?.draftKey,
+          onDraftSequence: (seq) => _draftController?.syncSequence(seq),
         );
         // 发送成功后删除草稿
         await _draftController?.deleteDraft();
@@ -453,8 +460,10 @@ class _ReplySheetState extends ConsumerState<ReplySheet> {
       ToastService.showInfo(S.current.post_pendingReview);
       Navigator.of(context).pop();
     } on DioException catch (_) {
-      // 网络错误已由 ErrorInterceptor 处理
+      // 网络错误已由 ErrorInterceptor 处理:发送失败,恢复草稿保存
+      _draftController?.enable();
     } catch (e, s) {
+      _draftController?.enable();
       AppErrorHandler.handleUnexpected(e, s);
     } finally {
       if (mounted) setState(() => _isSubmitting = false);

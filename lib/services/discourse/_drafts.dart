@@ -1,5 +1,12 @@
 part of 'discourse_service.dart';
 
+/// 草稿序列号冲突异常(对应服务端 409)
+class DraftSequenceConflictException implements Exception {
+  const DraftSequenceConflictException();
+  @override
+  String toString() => 'DraftSequenceConflictException';
+}
+
 /// 草稿相关 API
 mixin _DraftsMixin on _DiscourseServiceBase {
   /// 获取草稿列表
@@ -43,10 +50,13 @@ mixin _DraftsMixin on _DiscourseServiceBase {
 
   /// 保存草稿
   /// 返回新的序列号
+  /// [forceSave] 为 true 时绕过服务端 sequence 校验(用于 409 冲突后重试)
+  /// 409 冲突时抛出 [DraftSequenceConflictException],上层应带 forceSave=true 重试
   Future<int> saveDraft({
     required String draftKey,
     required DraftData data,
     int sequence = 0,
+    bool forceSave = false,
   }) async {
     try {
       final response = await _dio.post(
@@ -55,6 +65,7 @@ mixin _DraftsMixin on _DiscourseServiceBase {
           'draft_key': draftKey,
           'data': data.toJsonString(),
           'sequence': sequence,
+          if (forceSave) 'force_save': true,
         },
         options: Options(contentType: Headers.formUrlEncodedContentType),
       );
@@ -64,12 +75,10 @@ mixin _DraftsMixin on _DiscourseServiceBase {
       }
       return sequence + 1;
     } on DioException catch (e) {
-      // 409 Conflict 表示序列号冲突，服务器返回最新序列号
+      // 服务端 409 响应只含 errors/extras,不带 draft_sequence,
+      // 必须靠下次 force_save 兜底
       if (e.response?.statusCode == 409) {
-        final respData = e.response?.data;
-        if (respData is Map && respData['draft_sequence'] != null) {
-          return respData['draft_sequence'] as int;
-        }
+        throw const DraftSequenceConflictException();
       }
       _throwApiError(e);
     }

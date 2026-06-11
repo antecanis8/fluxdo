@@ -43,6 +43,10 @@ class DraftController {
   /// 是否已释放
   bool _disposed = false;
 
+  /// 是否禁用草稿保存(对齐 Discourse 前端 composer.disableDrafts)
+  /// 发送/审核途中置 true,避免与帖子创建/草稿删除流程撞 409
+  bool _disabled = false;
+
   /// 当前正在进行的保存操作
   Future<void>? _saveFuture;
 
@@ -78,7 +82,7 @@ class DraftController {
 
   /// 触发自动保存（带防抖）
   void scheduleSave(DraftData data) {
-    if (_disposed) return;
+    if (_disposed || _disabled) return;
 
     // 没有内容时不保存
     if (!data.hasContent) return;
@@ -90,13 +94,19 @@ class DraftController {
     _statusNotifier.value = DraftSaveStatus.pending;
 
     _debounceTimer = Timer(_debounceDelay, () {
+      // 对齐 Discourse 前端 services/composer.js:正在保存就再延一轮,
+      // 不并发(配合乐观 sequence 共同防 409)
+      if (_saveFuture != null) {
+        scheduleSave(data);
+        return;
+      }
       _save(data);
     });
   }
 
   /// 立即保存（关闭时调用）
   Future<void> saveNow(DraftData data) async {
-    if (_disposed) return;
+    if (_disposed || _disabled) return;
 
     _debounceTimer?.cancel();
 
@@ -105,6 +115,11 @@ class DraftController {
 
     // 如果没有内容变化，不需要保存
     if (!_hasContentChanged(data)) return;
+
+    // 等正在进行的保存完成,拿到最新 sequence 后再发,避免 409
+    if (_saveFuture != null) {
+      await _saveFuture;
+    }
 
     await _save(data);
   }
@@ -125,17 +140,43 @@ class DraftController {
   }
 
   Future<void> _doSave(DraftData dataWithTime, DraftData data) async {
+    // 对齐 Discourse 前端 composer.js:发请求前乐观递增 sequence,
+    // 这样保存中再来的请求会带 +1 后的值,不会再撞 409
+    final sentSequence = _sequence;
+    _sequence = sentSequence + 1;
     try {
       final newSequence = await _service.saveDraft(
         draftKey: draftKey,
         data: dataWithTime,
-        sequence: _sequence,
+        sequence: sentSequence,
       );
       _sequence = newSequence;
       _lastSavedContent = data.reply;
       _lastSavedTitle = data.title;
       if (!_disposed) {
         _statusNotifier.value = DraftSaveStatus.saved;
+      }
+    } on DraftSequenceConflictException {
+      // 服务端 sequence 与客户端不一致(例如网页端同时编辑、上次保存丢响应)。
+      // 服务端 409 不返回最新 sequence,只能 force_save 一次绕过校验。
+      try {
+        final newSequence = await _service.saveDraft(
+          draftKey: draftKey,
+          data: dataWithTime,
+          sequence: sentSequence,
+          forceSave: true,
+        );
+        _sequence = newSequence;
+        _lastSavedContent = data.reply;
+        _lastSavedTitle = data.title;
+        if (!_disposed) {
+          _statusNotifier.value = DraftSaveStatus.saved;
+        }
+      } catch (e) {
+        debugPrint('[DraftController] force save failed: $e');
+        if (!_disposed) {
+          _statusNotifier.value = DraftSaveStatus.error;
+        }
       }
     } catch (e) {
       debugPrint('[DraftController] save failed: $e');
@@ -169,6 +210,27 @@ class DraftController {
   /// 检查内容是否有变化
   bool _hasContentChanged(DraftData data) {
     return data.reply != _lastSavedContent || data.title != _lastSavedTitle;
+  }
+
+  /// 永久禁用本控制器的草稿保存
+  /// 用于发送/审核通过场景:停掉防抖定时器并阻断后续 [scheduleSave]/[saveNow]
+  void disable() {
+    _disabled = true;
+    _debounceTimer?.cancel();
+    if (!_disposed) {
+      _statusNotifier.value = DraftSaveStatus.idle;
+    }
+  }
+
+  /// 恢复草稿保存(发送失败时调用,对应 Discourse 前端 composer.js:1439)
+  void enable() {
+    _disabled = false;
+  }
+
+  /// 用服务端返回的 sequence 同步本地(发送响应里带 draft_sequence 时调用)
+  /// 对齐 Discourse 前端 composer.js:1382 的 `topic.set("draft_sequence", ...)`
+  void syncSequence(int sequence) {
+    _sequence = sequence;
   }
 
   /// 释放资源
