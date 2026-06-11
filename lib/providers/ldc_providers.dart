@@ -22,8 +22,15 @@ class LdcUserInfoNotifier extends AsyncNotifier<LdcUserInfo?> {
   @override
   Future<LdcUserInfo?> build() async {
     final prefs = await SharedPreferences.getInstance();
-    final currentUser = await ref.watch(currentUserProvider.future);
-    if (currentUser == null) {
+    // 只 watch username:currentUser 对象其他字段（如 gamification_score）后到时
+    // 不应触发 LDC 接口的重新请求
+    final currentUsername = ref.watch(
+      currentUserProvider.select((value) => value.value?.username),
+    );
+    final username =
+        currentUsername ??
+        (await ref.watch(currentUserProvider.future))?.username;
+    if (username == null) {
       await _clearCache(prefs);
       return null;
     }
@@ -37,7 +44,7 @@ class LdcUserInfoNotifier extends AsyncNotifier<LdcUserInfo?> {
     if (cached != null) {
       try {
         final cachedUser = prefs.getString(_cacheUserKey);
-        if (cachedUser != null && cachedUser != currentUser.username) {
+        if (cachedUser != null && cachedUser != username) {
           await _clearCache(prefs);
         } else {
           cachedInfo = LdcUserInfo.fromJson(jsonDecode(cached) as Map<String, dynamic>);
@@ -72,10 +79,9 @@ class LdcUserInfoNotifier extends AsyncNotifier<LdcUserInfo?> {
 
     final currentUser = await ref.read(currentUserProvider.future);
     if (currentUser == null) return null;
-    final gamificationScore = currentUser.gamificationScore;
 
     final service = LdcOAuthService();
-    final userInfo = await service.getUserInfo(gamificationScore: gamificationScore);
+    final userInfo = await service.getUserInfo();
 
     if (userInfo != null) {
       await prefs.setString(_cacheKey, jsonEncode(userInfo.toJson()));

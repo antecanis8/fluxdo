@@ -16,7 +16,6 @@ class LdcUserInfo {
   final String remainQuota;
   final int payLevel;
   final int dailyLimit;
-  final int? gamificationScore;
 
   LdcUserInfo({
     required this.id,
@@ -36,14 +35,7 @@ class LdcUserInfo {
     required this.remainQuota,
     required this.payLevel,
     required this.dailyLimit,
-    this.gamificationScore,
   });
-
-  int get dailyIncome {
-    if (gamificationScore == null) return 0;
-    final balance = int.tryParse(communityBalance) ?? 0;
-    return gamificationScore! - balance;
-  }
 
   factory LdcUserInfo.fromJson(Map<String, dynamic> json) {
     return LdcUserInfo(
@@ -64,7 +56,6 @@ class LdcUserInfo {
       remainQuota: json['remain_quota'] as String,
       payLevel: json['pay_level'] as int,
       dailyLimit: json['daily_limit'] as int,
-      gamificationScore: json['gamification_score'] as int?,
     );
   }
 
@@ -87,7 +78,6 @@ class LdcUserInfo {
       'remain_quota': remainQuota,
       'pay_level': payLevel,
       'daily_limit': dailyLimit,
-      'gamification_score': gamificationScore,
     };
   }
 }

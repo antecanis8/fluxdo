@@ -63,35 +63,13 @@ class LdcOAuthService {
     return authorize(context);
   }
 
-  Future<LdcUserInfo?> getUserInfo({int? gamificationScore}) async {
+  Future<LdcUserInfo?> getUserInfo() async {
     try {
       final response = await _dio.get(
         '$baseUrl/api/v1/oauth/user-info',
         options: Options(extra: {'skipCsrf': true, 'showErrorToast': false}),
       );
-      final ldcData = response.data['data'];
-      final userInfo = LdcUserInfo.fromJson(ldcData);
-
-      return LdcUserInfo(
-        id: userInfo.id,
-        username: userInfo.username,
-        nickname: userInfo.nickname,
-        trustLevel: userInfo.trustLevel,
-        avatarUrl: userInfo.avatarUrl,
-        totalReceive: userInfo.totalReceive,
-        totalPayment: userInfo.totalPayment,
-        totalTransfer: userInfo.totalTransfer,
-        totalCommunity: userInfo.totalCommunity,
-        communityBalance: userInfo.communityBalance,
-        availableBalance: userInfo.availableBalance,
-        payScore: userInfo.payScore,
-        isPayKey: userInfo.isPayKey,
-        isAdmin: userInfo.isAdmin,
-        remainQuota: userInfo.remainQuota,
-        payLevel: userInfo.payLevel,
-        dailyLimit: userInfo.dailyLimit,
-        gamificationScore: gamificationScore,
-      );
+      return LdcUserInfo.fromJson(response.data['data']);
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       if (statusCode == 401 || statusCode == 403) {

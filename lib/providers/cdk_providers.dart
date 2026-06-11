@@ -22,8 +22,14 @@ class CdkUserInfoNotifier extends AsyncNotifier<CdkUserInfo?> {
   @override
   Future<CdkUserInfo?> build() async {
     final prefs = await SharedPreferences.getInstance();
-    final currentUser = await ref.watch(currentUserProvider.future);
-    if (currentUser == null) {
+    // 只 watch username:currentUser 对象其他字段刷新时不应触发 CDK 接口的重新请求
+    final currentUsername = ref.watch(
+      currentUserProvider.select((value) => value.value?.username),
+    );
+    final username =
+        currentUsername ??
+        (await ref.watch(currentUserProvider.future))?.username;
+    if (username == null) {
       await _clearCache(prefs);
       return null;
     }
@@ -37,7 +43,7 @@ class CdkUserInfoNotifier extends AsyncNotifier<CdkUserInfo?> {
     if (cached != null) {
       try {
         final cachedUser = prefs.getString(_cacheUserKey);
-        if (cachedUser != null && cachedUser != currentUser.username) {
+        if (cachedUser != null && cachedUser != username) {
           await _clearCache(prefs);
         } else {
           cachedInfo = CdkUserInfo.fromJson(jsonDecode(cached) as Map<String, dynamic>);

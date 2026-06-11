@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/core_providers.dart';
 import '../providers/ldc_providers.dart';
 import '../pages/webview_page.dart';
 import '../services/network/exceptions/oauth_exception.dart';
@@ -39,6 +40,13 @@ class LdcBalanceCard extends ConsumerWidget {
 
     final userInfo = ldcUserInfo.value;
     if (userInfo == null) return const SizedBox.shrink();
+
+    // 今日收益依赖 Discourse 侧的 gamification_score，与 LDC 数据各自独立到达；
+    // 未就绪时返回 null，徽章不渲染（而不是显示错误的 +0）
+    final gamificationScore = ref.watch(
+      currentUserProvider.select((value) => value.value?.gamificationScore),
+    );
+    final dailyIncome = _dailyIncome(gamificationScore, userInfo.communityBalance);
 
     final theme = Theme.of(context);
     final isRefreshing = ldcUserInfo.isLoading;
@@ -91,31 +99,32 @@ class LdcBalanceCard extends ConsumerWidget {
                         ],
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.trending_up_rounded,
-                            size: 14,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '+${userInfo.dailyIncome}',
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onSurface,
-                              fontWeight: FontWeight.w500,
+                    if (dailyIncome != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.trending_up_rounded,
+                              size: 14,
+                              color: theme.colorScheme.primary,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 4),
+                            Text(
+                              '+$dailyIncome',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurface,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
                     const SizedBox(width: 8),
                     if (isRefreshing)
                       LoadingSpinner(
@@ -197,31 +206,32 @@ class LdcBalanceCard extends ConsumerWidget {
                 ],
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.secondaryContainer.withValues(alpha:0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.trending_up_rounded,
-                      size: 14,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '+${userInfo.dailyIncome}',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurface,
-                        fontWeight: FontWeight.w500,
+              if (dailyIncome != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondaryContainer.withValues(alpha:0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.trending_up_rounded,
+                        size: 14,
+                        color: theme.colorScheme.primary,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 4),
+                      Text(
+                        '+$dailyIncome',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.onSurface,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               if (isRefreshing) ...[
                 const SizedBox(width: 8),
                 LoadingSpinner(
@@ -334,35 +344,37 @@ class LdcBalanceCard extends ConsumerWidget {
                       fontSize: 36,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha:0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.trending_up,
-                          color: Colors.greenAccent,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          S.current.ldc_dailyIncome(userInfo.dailyIncome.toString()),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: Colors.white.withValues(alpha:0.9),
-                            fontWeight: FontWeight.w500,
+                  if (dailyIncome != null) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha:0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.trending_up,
+                            color: Colors.greenAccent,
+                            size: 16,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Text(
+                            S.current.ldc_dailyIncome(dailyIncome.toString()),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: Colors.white.withValues(alpha:0.9),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -371,6 +383,14 @@ class LdcBalanceCard extends ConsumerWidget {
       ),
     ),
     );
+  }
+
+  /// 今日收益 = Discourse gamification 积分 - 已结算的社区余额。
+  /// score 未就绪时返回 null（不渲染徽章）；余额可能是小数字符串，用 double 解析
+  int? _dailyIncome(int? gamificationScore, String communityBalance) {
+    if (gamificationScore == null) return null;
+    final balance = double.tryParse(communityBalance) ?? 0;
+    return (gamificationScore - balance).round();
   }
 
   Widget _buildErrorCard(BuildContext context, WidgetRef ref, Object error) {
