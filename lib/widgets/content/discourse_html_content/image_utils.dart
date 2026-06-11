@@ -218,8 +218,13 @@ class GalleryInfo {
 class DiscourseImageUtils {
   DiscourseImageUtils._();
 
-  /// upload:// 短链接解析缓存（全局共享）
-  static final Map<String, String?> _uploadUrlCache = {};
+  /// upload:// 短链接解析缓存（全局共享，仅缓存成功结果）
+  /// 失败不缓存：临时性失败（速率限制、网络抖动）可在下次 build 时重试，
+  /// 否则一次失败会被永久缓存为 null，即使后续 lookup-urls 成功也一直显示裂图
+  static final Map<String, String> _uploadUrlCache = {};
+
+  /// 进行中的解析请求（同一短链共享同一个 Future，避免并发解析互相覆盖结果）
+  static final Map<String, Future<String?>> _inflightResolves = {};
 
   /// 检查是否是 upload:// 短链接
   static bool isUploadUrl(String url) => url.startsWith('upload://');
@@ -228,35 +233,31 @@ class DiscourseImageUtils {
   /// 返回 null 表示未缓存，需要异步解析
   static String? getCachedUploadUrl(String shortUrl) {
     if (!isUploadUrl(shortUrl)) return shortUrl;
-    if (_uploadUrlCache.containsKey(shortUrl)) {
-      return _uploadUrlCache[shortUrl];
-    }
-    return null;
-  }
-
-  /// 检查 upload:// URL 是否已缓存
-  static bool isUploadUrlCached(String shortUrl) {
-    return _uploadUrlCache.containsKey(shortUrl);
+    return _uploadUrlCache[shortUrl];
   }
 
   /// 异步解析 upload:// 短链接并缓存结果
-  static Future<String?> resolveUploadUrl(String shortUrl) async {
-    if (!isUploadUrl(shortUrl)) return shortUrl;
+  static Future<String?> resolveUploadUrl(String shortUrl) {
+    if (!isUploadUrl(shortUrl)) return Future.value(shortUrl);
 
-    // 已缓存
-    if (_uploadUrlCache.containsKey(shortUrl)) {
-      return _uploadUrlCache[shortUrl];
-    }
+    final cached = _uploadUrlCache[shortUrl];
+    if (cached != null) return Future.value(cached);
 
-    // 调用 API 解析
+    return _inflightResolves[shortUrl] ??= _doResolveUploadUrl(shortUrl);
+  }
+
+  static Future<String?> _doResolveUploadUrl(String shortUrl) async {
     try {
       final resolved = await DiscourseService().resolveShortUrl(shortUrl);
-      _uploadUrlCache[shortUrl] = resolved;
+      if (resolved != null) {
+        _uploadUrlCache[shortUrl] = resolved;
+      }
       return resolved;
     } catch (e) {
       debugPrint('[DiscourseImageUtils] Failed to resolve upload url: $shortUrl, error: $e');
-      _uploadUrlCache[shortUrl] = null; // 缓存失败结果，避免重复请求
       return null;
+    } finally {
+      _inflightResolves.remove(shortUrl);
     }
   }
 

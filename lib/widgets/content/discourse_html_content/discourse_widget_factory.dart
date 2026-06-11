@@ -98,18 +98,10 @@ class DiscourseWidgetFactory extends WidgetFactory {
       return _buildImageWidget(url, url, width, height, isEmoji, isOnlyEmoji: isOnlyEmoji, emojiTitle: emojiTitle, emojiFontSize: emojiFontSize);
     }
 
-    // upload:// 短链接：检查缓存
-    if (DiscourseImageUtils.isUploadUrlCached(url)) {
-      final resolvedUrl = DiscourseImageUtils.getCachedUploadUrl(url);
-      if (resolvedUrl != null) {
-        return _buildImageWidget(resolvedUrl, url, width, height, isEmoji, isOnlyEmoji: isOnlyEmoji, emojiTitle: emojiTitle, emojiFontSize: emojiFontSize);
-      }
-      // 解析失败的 URL，显示错误图标
-      return Icon(
-        Icons.broken_image,
-        color: Theme.of(context).colorScheme.outline,
-        size: 24,
-      );
+    // upload:// 短链接：命中缓存直接渲染（缓存仅含成功结果）
+    final cachedUrl = DiscourseImageUtils.getCachedUploadUrl(url);
+    if (cachedUrl != null) {
+      return _buildImageWidget(cachedUrl, url, width, height, isEmoji, isOnlyEmoji: isOnlyEmoji, emojiTitle: emojiTitle, emojiFontSize: emojiFontSize);
     }
 
     // upload:// 短链接首次加载：使用 FutureBuilder 解析

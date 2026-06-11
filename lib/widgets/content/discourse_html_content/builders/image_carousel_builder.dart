@@ -74,10 +74,8 @@ class _ImageCarouselState extends State<_ImageCarousel> {
     for (int i = 0; i < widget.images.length; i++) {
       final src = widget.images[i].src;
       if (DiscourseImageUtils.isUploadUrl(src)) {
-        if (DiscourseImageUtils.isUploadUrlCached(src)) {
-          final cached = DiscourseImageUtils.getCachedUploadUrl(src);
-          if (cached != null) _resolvedUrls[i] = cached;
-        }
+        final cached = DiscourseImageUtils.getCachedUploadUrl(src);
+        if (cached != null) _resolvedUrls[i] = cached;
       } else {
         _resolvedUrls[i] = src;
       }

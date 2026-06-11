@@ -311,39 +311,99 @@ mixin _UploadsMixin on _DiscourseServiceBase {
   /// 上传图片（uploadFile 的别名，保持向后兼容）
   Future<UploadResult> uploadImage(String filePath) => uploadFile(filePath);
 
-  /// 批量解析 short_url
+  /// 批量解析 short_url（内置速率限制重试，对齐 uploadFile）
   Future<List<Map<String, dynamic>>> lookupUrls(List<String> shortUrls) async {
     final missingUrls = shortUrls.where((url) => !_urlCache.containsKey(url)).toList();
 
     if (missingUrls.isEmpty) return [];
 
-    try {
-      final response = await _dio.post(
-        '/uploads/lookup-urls',
-        data: {'short_urls': missingUrls},
-      );
+    const maxRetries = 3;
+    for (int attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        final response = await _dio.post(
+          '/uploads/lookup-urls',
+          data: {'short_urls': missingUrls},
+        );
 
-      final List<dynamic> uploads = response.data;
-      final result = <Map<String, dynamic>>[];
+        final List<dynamic> uploads = response.data;
+        final result = <Map<String, dynamic>>[];
 
-      for (final item in uploads) {
-        if (item is Map<String, dynamic>) {
-          result.add(item);
-          final shortUrl = item['short_url'] as String?;
-          final url = item['url'] as String?;
-          if (shortUrl != null && url != null) {
-            _urlCache[shortUrl] = ResolvedUploadUrl(
-              url: url,
-              shortPath: item['short_path'] as String?,
-            );
+        for (final item in uploads) {
+          if (item is Map<String, dynamic>) {
+            result.add(item);
+            final shortUrl = item['short_url'] as String?;
+            final url = item['url'] as String?;
+            if (shortUrl != null && url != null) {
+              _urlCache[shortUrl] = ResolvedUploadUrl(
+                url: url,
+                shortPath: item['short_path'] as String?,
+              );
+            }
           }
         }
+        return result;
+      } on DioException catch (e) {
+        // ErrorInterceptor 将 429 throw 为 RateLimitException，
+        // Dio 会将其包装在 DioException.error 中
+        final innerError = e.error;
+        if (innerError is RateLimitException && attempt < maxRetries) {
+          final waitSeconds = innerError.retryAfterSeconds ?? 5;
+          debugPrint(
+            '[DiscourseService] lookupUrls 速率限制，等待 ${waitSeconds}s 后重试 '
+            '(${attempt + 1}/$maxRetries)',
+          );
+          await Future.delayed(Duration(seconds: waitSeconds));
+          continue;
+        }
+        debugPrint('[DiscourseService] lookupUrls failed: $e');
+        return [];
+      } catch (e) {
+        debugPrint('[DiscourseService] lookupUrls failed: $e');
+        return [];
       }
-      return result;
-    } catch (e) {
-      debugPrint('[DiscourseService] lookupUrls failed: $e');
-      return [];
     }
+    return [];
+  }
+
+  /// 微批量合并窗口内待解析的 short_url（与 _pendingLookupCompleter 同生命周期）
+  List<String>? _pendingLookupBatch;
+  Completer<void>? _pendingLookupCompleter;
+
+  /// 进行中的解析请求（同一 short_url 共享同一个 Future，避免重复请求）
+  final Map<String, Future<void>> _inflightLookups = {};
+
+  /// 将单条解析请求合并进微批量窗口：
+  /// 同一帧/短时间内多张图片各自触发的解析会合并为一次 lookup-urls 请求，
+  /// 避免上传多张图后瞬时并发多个 POST 触发速率限制
+  Future<void> _lookupBatched(String shortUrl) {
+    final inflight = _inflightLookups[shortUrl];
+    if (inflight != null) return inflight;
+
+    if (_pendingLookupBatch == null) {
+      final batch = <String>[];
+      final completer = Completer<void>();
+      _pendingLookupBatch = batch;
+      _pendingLookupCompleter = completer;
+
+      Future.delayed(const Duration(milliseconds: 50), () async {
+        // 关闭收集窗口，后续请求进入下一批
+        _pendingLookupBatch = null;
+        _pendingLookupCompleter = null;
+        try {
+          await lookupUrls(batch);
+        } finally {
+          for (final url in batch) {
+            _inflightLookups.remove(url);
+          }
+          completer.complete();
+        }
+      });
+    }
+
+    _pendingLookupBatch!.add(shortUrl);
+    final future = _pendingLookupCompleter!.future;
+    _inflightLookups[shortUrl] = future;
+    return future;
   }
 
   /// 解析单个 short_url
@@ -356,7 +416,7 @@ mixin _UploadsMixin on _DiscourseServiceBase {
       return _urlCache[shortUrl];
     }
 
-    await lookupUrls([shortUrl]);
+    await _lookupBatched(shortUrl);
     return _urlCache[shortUrl];
   }
 

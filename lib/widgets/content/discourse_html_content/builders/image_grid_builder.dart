@@ -224,14 +224,10 @@ class _GridImageTileState extends State<_GridImageTile> {
       return _buildImageWidget(context, widget.imageData.src, widget.imageData.fullSrc, displayHeight);
     }
 
-    // upload:// 短链接：检查缓存
-    if (DiscourseImageUtils.isUploadUrlCached(widget.imageData.src)) {
-      final resolvedUrl = DiscourseImageUtils.getCachedUploadUrl(widget.imageData.src);
-      if (resolvedUrl != null) {
-        return _buildImageWidget(context, resolvedUrl, resolvedUrl, displayHeight);
-      }
-      // 解析失败
-      return _buildErrorWidget(displayHeight);
+    // upload:// 短链接：命中缓存直接渲染（缓存仅含成功结果）
+    final cachedUrl = DiscourseImageUtils.getCachedUploadUrl(widget.imageData.src);
+    if (cachedUrl != null) {
+      return _buildImageWidget(context, cachedUrl, cachedUrl, displayHeight);
     }
 
     // 首次加载：使用 FutureBuilder 解析
