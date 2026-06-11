@@ -91,9 +91,11 @@ Widget? buildTable({
   }
 
   final borderColor = theme.colorScheme.outlineVariant;
+  // 列间分隔线是 Container 内部的 Border(left)，不占额外宽度；
+  // 外层 Container 的 Border.all(width: 1) 会从 totalWidth 中扣掉 2px 给子级，
+  // 所以这里要把这 2px 加回来，否则在两列表格里 Row 会溢出 1px。
   final totalWidth =
-      columnWidths.fold<double>(0, (sum, w) => sum + w) +
-      (columnCount - 1); // 列间分隔线 1px
+      columnWidths.fold<double>(0, (sum, w) => sum + w) + 2;
   final totalRowCount = rows.length;
 
   // 构建数据行区域
