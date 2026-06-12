@@ -89,15 +89,20 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   }
 
   /// 下拉刷新
-  /// 注意：LDC/CDK provider 的 build() 中 ref.watch(currentUserProvider) 会在
-  /// currentUser 刷新后自动重建，无需显式调用 refresh()，否则会触发两次 loading
   Future<void> _refreshData() async {
     if (!mounted) return;
     setState(() => _isRefreshing = true);
     try {
+      // LDC/CDK provider 现在只 watch currentUser.username，
+      // refreshSilently 不会再连带触发它们 rebuild，需要显式刷新
+      final prefs = ref.read(sharedPreferencesProvider);
+      final ldcEnabled = prefs.getBool('ldc_enabled') ?? false;
+      final cdkEnabled = prefs.getBool('cdk_enabled') ?? false;
       await Future.wait([
         ref.read(currentUserProvider.notifier).refreshSilently(force: true),
         ref.read(userSummaryProvider.notifier).refresh(),
+        if (ldcEnabled) ref.read(ldcUserInfoProvider.notifier).refresh(),
+        if (cdkEnabled) ref.read(cdkUserInfoProvider.notifier).refresh(),
       ]);
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
