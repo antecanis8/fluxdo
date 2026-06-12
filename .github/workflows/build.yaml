@@ -580,38 +580,10 @@ jobs:
           # fallback 模式下 plain 文本直接复制 markdown 版本
           cp release_notes.md release_notes.txt
 
-      - name: Wait for telegram-bot-api
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        if: env.TELEGRAM_BOT_TOKEN
-        run: |
-          for i in {1..20}; do
-            if curl -sf "http://localhost:8081/bot${TELEGRAM_BOT_TOKEN}/getMe" > /dev/null; then
-              echo "telegram-bot-api is ready"
-              exit 0
-            fi
-            echo "waiting for telegram-bot-api..."
-            sleep 2
-          done
-          echo "telegram-bot-api not ready"
-          exit 1
-
-      - name: Send Telegram notification
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          VERSION: ${{ steps.version.outputs.VERSION }}
-          IS_PRERELEASE: ${{ contains(github.ref, '-') }}
-          TELEGRAM_API_BASE: http://localhost:8081
-        if: env.TELEGRAM_BOT_TOKEN
-        continue-on-error: true
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
-          python release_telegram.py
-
       - name: Append release template
         run: |
+          # TG 通知不带下载表格（安装包直接随消息发文件），先留一份纯 notes 副本
+          cp release_notes.md release_notes_tg.md
           sed 's/VERSION/${{ steps.version.outputs.VERSION }}/g' .github/release_template.md >> release_notes.md
 
       - name: Generate SHA256 checksums
@@ -706,3 +678,37 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./gh-pages-deploy
           keep_files: false
+
+      # TG 通知放在 job 最后：beta 没有 GitHub Release，TG 是唯一发布渠道，
+      # 失败必须让 CI 红（不能 continue-on-error 吞掉）。放最后保证 TG 失败
+      # 不挡 stable 的 Release/AltStore/Pages，且重跑时前面步骤均幂等不会重复发布。
+      # 脚本内部失败会回收已发出的消息，重跑不产生重复。
+      - name: Wait for telegram-bot-api
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        if: env.TELEGRAM_BOT_TOKEN
+        run: |
+          for i in {1..20}; do
+            if curl -sf "http://localhost:8081/bot${TELEGRAM_BOT_TOKEN}/getMe" > /dev/null; then
+              echo "telegram-bot-api is ready"
+              exit 0
+            fi
+            echo "waiting for telegram-bot-api..."
+            sleep 2
+          done
+          echo "telegram-bot-api not ready"
+          exit 1
+
+      - name: Send Telegram notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          IS_PRERELEASE: ${{ contains(github.ref, '-') }}
+          TELEGRAM_API_BASE: http://localhost:8081
+          RELEASE_NOTES_FILE: release_notes_tg.md
+        if: env.TELEGRAM_BOT_TOKEN
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+          python release_telegram.py
