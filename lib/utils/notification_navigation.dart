@@ -6,7 +6,6 @@ import '../pages/topic_detail_page/topic_detail_page.dart';
 import '../pages/user_profile_page.dart';
 import '../pages/badge_page.dart';
 import '../services/local_notification_service.dart';
-import '../widgets/notification/notification_quick_panel.dart';
 
 NavigatorState? _rootNavigator(BuildContext context) {
   return navigatorKey.currentState ??
@@ -14,7 +13,6 @@ NavigatorState? _rootNavigator(BuildContext context) {
 }
 
 void _pushOnRootNavigator(BuildContext context, Widget page) {
-  NotificationQuickPanel.dismiss();
   _rootNavigator(context)?.push(MaterialPageRoute(builder: (_) => page));
 }
 
