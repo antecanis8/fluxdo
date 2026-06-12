@@ -39,9 +39,11 @@ jobs:
           - platform: macos
             os: macos-latest
             arch: arm64
+            excluded-arch: x86_64
           - platform: macos
-            os: macos-15-intel
+            os: macos-latest
             arch: x86_64
+            excluded-arch: arm64
           - platform: windows
             os: windows-2022
             arch: x86_64
@@ -68,6 +70,13 @@ jobs:
       - name: Setup Rust
         if: startsWith(matrix.platform, 'android') || matrix.platform == 'macos' || matrix.platform == 'ios' || matrix.platform == 'windows'
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        if: startsWith(matrix.platform, 'android') || matrix.platform == 'macos' || matrix.platform == 'ios' || matrix.platform == 'windows'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core/doh_proxy
+          key: ${{ matrix.platform }}-${{ matrix.arch || matrix.flutter-target }}
 
       - name: Setup iOS Rust targets
         if: matrix.platform == 'ios'
@@ -152,6 +161,9 @@ jobs:
 
       - name: Build macOS
         if: matrix.platform == 'macos'
+        env:
+          FLUXDO_MACOS_ARCH: ${{ matrix.arch }}
+          FLUTTER_XCODE_EXCLUDED_ARCHS: ${{ matrix.excluded-arch }}
         run: |
           dart tool/flutterw.dart build macos --release
           mkdir -p dist
@@ -159,6 +171,8 @@ jobs:
           test -f "$APP_PATH/Contents/Frameworks/libdoh_proxy.dylib"
           test -f "$APP_PATH/Contents/Resources/native/doh_proxy_bin"
           test -x "$APP_PATH/Contents/Resources/native/doh_proxy_bin"
+          lipo -archs "$APP_PATH/Contents/MacOS/fluxdo" | grep -qw "${{ matrix.arch }}"
+          lipo -archs "$APP_PATH/Contents/Frameworks/libdoh_proxy.dylib" | grep -qw "${{ matrix.arch }}"
 
       - name: Package macOS DMG
         if: matrix.platform == 'macos'
@@ -229,6 +243,12 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core/doh_proxy
+          key: flatpak
 
       - name: Prepare Flatpak source tree
         env:

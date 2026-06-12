@@ -56,6 +56,11 @@ Future<void> _runNativePrepIfNeeded(String command, List<String> args) async {
     if (targetPlatform != null && targetPlatform.isNotEmpty) {
       nativeArgs.add('--target-platform=$targetPlatform');
     }
+  } else if (target.platform == 'macos') {
+    final macOsArch = target.macOsArch;
+    if (macOsArch != null && macOsArch.isNotEmpty) {
+      nativeArgs.add('--arch=$macOsArch');
+    }
   }
   await runOrExit(
     title: '准备 ${target.platform} 原生产物',
@@ -73,13 +78,18 @@ String? _firstFlutterCommand(List<String> args) {
   return null;
 }
 
+String? _macOsArchFromEnv() {
+  final value = Platform.environment['FLUXDO_MACOS_ARCH']?.trim();
+  return (value == null || value.isEmpty) ? null : value;
+}
+
 Future<_NativeTarget?> _detectNativeTarget(String command, List<String> args) async {
   switch (command) {
     case 'build':
       final buildTarget = _firstPositionalAfter(args, 'build');
       return switch (buildTarget) {
         'windows' => const _NativeTarget('windows'),
-        'macos' => const _NativeTarget('macos'),
+        'macos' => _NativeTarget('macos', macOsArch: _macOsArchFromEnv()),
         'linux' => const _NativeTarget('linux'),
         'ios' || 'ipa' => const _NativeTarget('ios'),
         'apk' || 'appbundle' || 'aar' => const _NativeTarget('android'),
@@ -90,7 +100,7 @@ Future<_NativeTarget?> _detectNativeTarget(String command, List<String> args) as
       final deviceId = _extractOptionValue(args, '-d', '--device-id');
       final directTarget = switch (deviceId) {
         'windows' => const _NativeTarget('windows'),
-        'macos' => const _NativeTarget('macos'),
+        'macos' => _NativeTarget('macos', macOsArch: _macOsArchFromEnv()),
         'linux' => const _NativeTarget('linux'),
         'android' => const _NativeTarget('android'),
         'ios' => const _NativeTarget('ios'),
@@ -186,8 +196,7 @@ Future<List<_FlutterDevice>> _loadFlutterDevices() async {
   }
 }
 
-_NativeTarget? _nativeTargetFromDevice(_FlutterDevice device) {
-  final targetPlatform = device.targetPlatform;
+_NativeTarget? _nativeTargetFromDevice(_FlutterDevice device) {  final targetPlatform = device.targetPlatform;
   if (targetPlatform.startsWith('android')) {
     return _NativeTarget('android', androidTargetPlatform: targetPlatform);
   }
@@ -195,7 +204,7 @@ _NativeTarget? _nativeTargetFromDevice(_FlutterDevice device) {
     return const _NativeTarget('ios');
   }
   if (targetPlatform.startsWith('darwin')) {
-    return const _NativeTarget('macos');
+    return _NativeTarget('macos', macOsArch: _macOsArchFromEnv());
   }
   if (targetPlatform.startsWith('windows')) {
     return const _NativeTarget('windows');
@@ -207,10 +216,11 @@ _NativeTarget? _nativeTargetFromDevice(_FlutterDevice device) {
 }
 
 class _NativeTarget {
-  const _NativeTarget(this.platform, {this.androidTargetPlatform});
+  const _NativeTarget(this.platform, {this.androidTargetPlatform, this.macOsArch});
 
   final String platform;
   final String? androidTargetPlatform;
+  final String? macOsArch;
 }
 
 class _FlutterDevice {
