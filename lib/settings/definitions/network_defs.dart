@@ -94,7 +94,7 @@ List<SettingsGroup> buildNetworkGroups(BuildContext context) {
         ),
         CustomModel(
           id: 'rateLimit',
-          title: l10n.networkSettings_maxConcurrent,
+          title: l10n.networkSettings_rateLimitTitle,
           subtitle: l10n.networkSettings_advanced,
           builder: (context, ref) => const RateLimitCard(),
         ),
