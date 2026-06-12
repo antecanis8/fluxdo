@@ -34,16 +34,42 @@ class EnhancedPersistCookieJar implements base.CookieJar {
     await _store.writeAll(toPersist);
   }
 
-  Future<void> saveCanonicalCookies(Uri uri, List<CanonicalCookie> cookies) async {
+  /// 保存一组 CanonicalCookie，按 storageKey 去重。
+  ///
+  /// [trusted] 标记写入来源是否权威：
+  /// - true（服务器 Set-Cookie / CF challenge 确认值）：值变化时升 version 盖过
+  ///   泛读旧值；值未变则保持。
+  /// - false（WebView 泛读，可能读到旧残留）：仅当比已有值更新鲜（[isFresherThan]）
+  ///   时才覆盖，避免旧值盖掉权威新值。
+  Future<void> saveCanonicalCookies(
+    Uri uri,
+    List<CanonicalCookie> cookies, {
+    bool trusted = false,
+  }) async {
     if (cookies.isEmpty) return;
     final all = [...await _readAll()];
     for (final cookie in cookies) {
-      final resolved = cookie.copyWith(
+      var resolved = cookie.copyWith(
         domain: cookie.domain ?? uri.host.toLowerCase(),
         path: cookie.path.isEmpty ? '/' : cookie.path,
         lastAccessTime: DateTime.now().toUtc(),
       );
-      all.removeWhere((existing) => existing.storageKey == resolved.storageKey);
+      final idx =
+          all.indexWhere((existing) => existing.storageKey == resolved.storageKey);
+      if (idx >= 0) {
+        final existing = all[idx];
+        if (trusted) {
+          resolved = resolved.copyWith(
+            version: existing.value == resolved.value
+                ? existing.version
+                : existing.version + 1,
+          );
+        } else if (!resolved.isFresherThan(existing)) {
+          // 不可信且不更新鲜：保留已有的权威值，跳过本次写入。
+          continue;
+        }
+        all.removeAt(idx);
+      }
       if (ignoreExpires || !resolved.isExpired) {
         all.add(resolved);
       }
@@ -51,20 +77,25 @@ class EnhancedPersistCookieJar implements base.CookieJar {
     await _writeAll(all);
   }
 
-  Future<void> saveFromSetCookieHeaders(Uri uri, List<String> headers) async {
+  Future<void> saveFromSetCookieHeaders(
+    Uri uri,
+    List<String> headers, {
+    bool trusted = false,
+  }) async {
     final cookies = headers.map((e) => SetCookieParser.parse(e, uri: uri)).toList();
-    await saveCanonicalCookies(uri, cookies);
+    await saveCanonicalCookies(uri, cookies, trusted: trusted);
   }
 
   Future<void> saveFromCdpCookies(
     Uri uri,
-    List<Map<String, dynamic>> rawCookies,
-  ) async {
+    List<Map<String, dynamic>> rawCookies, {
+    bool trusted = false,
+  }) async {
     final cookies = rawCookies
         .map((e) => CdpCookieParser.parse(e, originUrl: uri.toString()))
         .whereType<CanonicalCookie>()
         .toList();
-    await saveCanonicalCookies(uri, cookies);
+    await saveCanonicalCookies(uri, cookies, trusted: trusted);
   }
 
   Future<List<CanonicalCookie>> loadCanonicalForRequest(Uri uri) async {
@@ -97,6 +128,18 @@ class EnhancedPersistCookieJar implements base.CookieJar {
   Future<void> saveFromResponse(Uri uri, List<io.Cookie> cookies) async {
     final canonical = cookies.map((e) => SetCookieParser.fromIoCookie(e, uri: uri)).toList();
     await saveCanonicalCookies(uri, canonical);
+  }
+
+  /// 与 [saveFromResponse] 相同，但可标记 [trusted]（CF challenge 等确认的权威
+  /// 写入），升 version 盖过 WebView 泛读到的旧值。
+  Future<void> saveFromResponseTrusted(
+    Uri uri,
+    List<io.Cookie> cookies, {
+    bool trusted = false,
+  }) async {
+    final canonical =
+        cookies.map((e) => SetCookieParser.fromIoCookie(e, uri: uri)).toList();
+    await saveCanonicalCookies(uri, canonical, trusted: trusted);
   }
 
   @override

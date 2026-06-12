@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../../auth_session.dart';
 import '../../log/log_writer.dart';
 import 'cookie_jar_service.dart';
+import 'raw_cookie_writer.dart';
 import 'session_cookie_sentinel.dart';
 
 /// App-specific CookieManager.
@@ -517,9 +518,12 @@ class AppCookieManager extends Interceptor {
 
     if (cookiesToSaveToJar.isNotEmpty) {
       if (enhancedJar != null) {
+        // dio 响应的 Set-Cookie 是服务器直发的权威值，标记 trusted 让它升 version，
+        // 盖过 WebView 泛读可能带回的旧残留。
         await enhancedJar.saveFromSetCookieHeaders(
           resolvedUri,
           headersToSaveToJar,
+          trusted: true,
         );
       } else {
         await cookieJar.saveFromResponse(
@@ -534,6 +538,22 @@ class AppCookieManager extends Interceptor {
         '[CookieManager] auth.session-token primary save uri: '
         '${resolvedUri.toString()} (pathB=$isPathB)',
       );
+    }
+
+    // dio→WebView 增量同步（仅路径 A）：critical cookie 的新值立即推 WebView。
+    // 破除 "WV 只有 1 份旧值 → sweep ensureUnique 直接 noop 不更新" 的死角，
+    // 避免必须重启 priming 才同步（用户反馈的 dio→WV 不及时）。删除指令交给
+    // 下面的 sweep delete 处理。
+    if (!isPathB) {
+      for (var i = 0; i < filteredCookies.length; i++) {
+        final cookie = filteredCookies[i];
+        if (!criticalNames.contains(cookie.name)) continue;
+        if (_intentForCookie(cookie) == SweepIntent.delete) continue;
+        await RawCookieWriter.instance.setRawCookie(
+          resolvedUri.toString(),
+          filteredSetCookieHeaders[i],
+        );
+      }
     }
 
     // 对响应里 *所有* cookie 触发 sweep (不再按 critical 过滤):

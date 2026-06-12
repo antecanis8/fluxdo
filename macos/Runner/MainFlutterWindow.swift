@@ -263,13 +263,14 @@ class MainFlutterWindow: NSWindow {
     let host = (url.host ?? "").lowercased()
 
     store.getAllCookies { cookies in
+      // 枚举真实 cookie 对象，按 name + 适用域过滤（与 countCookiesByNameApple 对齐），
+      // 逐个 delete 真实对象，不再用 domainCandidates/pathCandidates 猜测。
       let matching = cookies.filter { cookie in
         guard cookie.name == name else { return false }
-        let domainMatch = domainCandidates.contains { candidate in
-          MainFlutterWindow.matchDomain(cookieDomain: cookie.domain, candidate: candidate, host: host)
-        }
-        let pathMatch = pathCandidates.contains(cookie.path)
-        return domainMatch && pathMatch
+        let cookieDomain = (cookie.domain.hasPrefix(".")
+          ? String(cookie.domain.dropFirst())
+          : cookie.domain).lowercased()
+        return host == cookieDomain || host.hasSuffix("." + cookieDomain)
       }
 
       CookieStoreObserverHandler.shared.beginInternalWrite()
@@ -290,11 +291,10 @@ class MainFlutterWindow: NSWindow {
       let storage = HTTPCookieStorage.shared
       if let sharedCookies = storage.cookies {
         for cookie in sharedCookies where cookie.name == name {
-          let domainMatch = domainCandidates.contains { candidate in
-            MainFlutterWindow.matchDomain(cookieDomain: cookie.domain, candidate: candidate, host: host)
-          }
-          let pathMatch = pathCandidates.contains(cookie.path)
-          if domainMatch && pathMatch {
+          let cookieDomain = (cookie.domain.hasPrefix(".")
+            ? String(cookie.domain.dropFirst())
+            : cookie.domain).lowercased()
+          if host == cookieDomain || host.hasSuffix("." + cookieDomain) {
             storage.deleteCookie(cookie)
           }
         }

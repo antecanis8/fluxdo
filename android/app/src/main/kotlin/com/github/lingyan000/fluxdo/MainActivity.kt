@@ -18,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager as WebCookieManager
 import android.webkit.WebView
+import androidx.webkit.CookieManagerCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import io.flutter.embedding.android.FlutterActivity
@@ -163,19 +164,44 @@ class MainActivity : FlutterActivity() {
                         mainHandler.post {
                             try {
                                 val mgr = WebCookieManager.getInstance()
-                                val combinations = mutableListOf<Pair<String?, String>>()
-                                for (domain in domainCandidates) {
-                                    for (path in pathCandidates) {
-                                        combinations.add(Pair(domain, path))
+                                // 优先：GET_COOKIE_INFO 拿每条 cookie 的真实 domain/path 精确删，
+                                // 与 countCookiesByName(getCookie) 对齐，杜绝"数得到删不掉"的残留循环。
+                                // 旧 WebView(<105) 不支持时回退到穷举候选组合。
+                                val targets = mutableListOf<Pair<String?, String>>()
+                                if (WebViewFeature.isFeatureSupported(WebViewFeature.GET_COOKIE_INFO)) {
+                                    for (line in CookieManagerCompat.getCookieInfo(mgr, url)) {
+                                        val params = line.split(";")
+                                        if (params.isEmpty()) continue
+                                        val nv = params[0].split("=", limit = 2)
+                                        if (nv[0].trim() != name) continue
+                                        var domain: String? = null
+                                        var path = "/"
+                                        for (i in 1 until params.size) {
+                                            val kv = params[i].split("=", limit = 2)
+                                            val k = kv[0].trim()
+                                            val v = if (kv.size > 1) kv[1].trim() else ""
+                                            if (k.equals("Domain", ignoreCase = true)) {
+                                                domain = v
+                                            } else if (k.equals("Path", ignoreCase = true) && v.isNotEmpty()) {
+                                                path = v
+                                            }
+                                        }
+                                        targets.add(Pair(domain, path))
+                                    }
+                                } else {
+                                    for (domain in domainCandidates) {
+                                        for (path in pathCandidates) {
+                                            targets.add(Pair(domain, path))
+                                        }
                                     }
                                 }
-                                if (combinations.isEmpty()) {
+                                if (targets.isEmpty()) {
                                     result.success(0)
                                     return@post
                                 }
-                                val remaining = AtomicInteger(combinations.size)
+                                val remaining = AtomicInteger(targets.size)
                                 val deletedCount = AtomicInteger(0)
-                                for ((domain, path) in combinations) {
+                                for ((domain, path) in targets) {
                                     val attrs = mutableListOf("$name=", "Max-Age=0", "Path=$path")
                                     if (domain != null) attrs.add("Domain=$domain")
                                     val rawCookie = attrs.joinToString("; ")

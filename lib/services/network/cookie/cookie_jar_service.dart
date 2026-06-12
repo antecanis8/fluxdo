@@ -575,6 +575,7 @@ class CookieJarService {
     InAppWebViewController controller, {
     String? currentUrl,
     Set<String>? cookieNames,
+    bool trusted = false,
   }) async {
     if (!io.Platform.isWindows) return 0;
     if (!_initialized) await initialize();
@@ -604,7 +605,7 @@ class CookieJarService {
 
       final jar = _cookieJar;
       if (jar is EnhancedPersistCookieJar) {
-        await jar.saveFromCdpCookies(uri, filtered);
+        await jar.saveFromCdpCookies(uri, filtered, trusted: trusted);
         return filtered.length;
       }
 

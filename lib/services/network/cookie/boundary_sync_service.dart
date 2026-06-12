@@ -1,5 +1,6 @@
 import 'dart:io' as io;
 
+import 'package:enhanced_cookie_jar/enhanced_cookie_jar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -26,12 +27,17 @@ class BoundarySyncService {
   ///
   /// [currentUrl] 当前页面 URL，用于确定读取哪个域名的 cookie。
   /// [cookieNames] 只同步指定的 cookie 名；null 表示同步所有。
+  /// [trusted] 标记为权威写入（CF challenge 确认后），让写入升 version 盖过旧值。
+  /// [acceptValues] cookie 名 → 只接受的值；用于 challenge 场景按确认的 fresh 值
+  ///   过滤，排除 WebView 中可能残留的旧变体。
   Future<void> syncFromWebView({
     String? currentUrl,
     InAppWebViewController? controller,
     Set<String>? cookieNames,
     bool allowLowConfidenceSessionCookies = false,
     int? requestGeneration,
+    bool trusted = false,
+    Map<String, String>? acceptValues,
   }) async {
     final url = currentUrl ?? AppConstants.baseUrl;
     final uri = Uri.parse(url);
@@ -52,6 +58,7 @@ class BoundarySyncService {
           controller,
           currentUrl: url,
           cookieNames: cookieNames,
+          trusted: trusted,
         );
         if (synced > 0) {
           final syncedDetails = await _jar.getCookieDiagnosticsForRequest(
@@ -82,6 +89,9 @@ class BoundarySyncService {
         final value = wc.value?.toString() ?? '';
         if (value.isEmpty) continue;
         if (cookieNames != null && !cookieNames.contains(wc.name)) continue;
+        // challenge 场景：只接受确认的 fresh 值，排除 WebView 残留的旧变体。
+        final onlyValue = acceptValues?[wc.name];
+        if (onlyValue != null && value != onlyValue) continue;
 
         final isSessionCookie =
             CookieJarService.sessionCookieNames.contains(wc.name);
@@ -208,7 +218,12 @@ class BoundarySyncService {
       }
 
       if (!_jar.isInitialized) await _jar.initialize();
-      await _jar.cookieJar.saveFromResponse(uri, toSave);
+      final jar = _jar.cookieJar;
+      if (trusted && jar is EnhancedPersistCookieJar) {
+        await jar.saveFromResponseTrusted(uri, toSave, trusted: true);
+      } else {
+        await jar.saveFromResponse(uri, toSave);
+      }
       final syncedDetails = await _jar.getCookieDiagnosticsForRequest(
         uri,
         names: toSave.map((cookie) => cookie.name),

@@ -95,6 +95,24 @@ class CanonicalCookie {
     partitionKey,
   ]);
 
+  /// 同 storageKey 覆盖决策：本 cookie 是否比 [other] 更应保留（更新鲜）。
+  ///
+  /// 判定顺序：version 更高 > expiresAt 更晚 > creationTime 更晚。
+  /// 用于防止 WebView 泛读到的旧值覆盖 jar 中由可信来源（dio Set-Cookie /
+  /// CF challenge）写入的权威新值。
+  bool isFresherThan(CanonicalCookie other) {
+    if (version != other.version) return version > other.version;
+    final a = expiresAt;
+    final b = other.expiresAt;
+    if (a != null && b != null) {
+      if (a != b) return a.isAfter(b);
+    } else if (a != null || b != null) {
+      // 有过期时间的视为更完整/更新，优先保留
+      return a != null;
+    }
+    return creationTime.isAfter(other.creationTime);
+  }
+
   /// 从字段重建 Set-Cookie 头字符串
   /// 如果有 rawSetCookie 原始头则直接返回，否则从字段拼接
   String toSetCookieHeader() {
