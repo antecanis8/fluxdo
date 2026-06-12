@@ -12,6 +12,9 @@ env:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -101,12 +104,35 @@ jobs:
       - name: Build Android
         if: startsWith(matrix.platform, 'android')
         run: |
-          dart tool/flutterw.dart build apk --release --target-platform ${{ matrix.flutter-target }} --dart-define=cronetHttpNoPlay=true
+          dart tool/flutterw.dart build apk --release --target-platform ${{ matrix.flutter-target }} --dart-define=cronetHttpNoPlay=true --split-debug-info=build/symbols
           unzip -l build/app/outputs/flutter-apk/app-release.apk | grep "lib/${{ matrix.arch }}/libdoh_proxy.so"
           cmp -s core/doh_proxy/certs/ca.der android/app/src/main/res/raw/proxy_ca.der
           cmp -s core/doh_proxy/certs/ca.crt assets/certs/proxy_ca.pem
           mkdir -p dist
           mv build/app/outputs/flutter-apk/app-release.apk dist/fluxdo-${{ matrix.arch }}.apk
+
+      - name: Authenticate to Google Cloud
+        if: startsWith(matrix.platform, 'android')
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Upload Dart symbols to Crashlytics
+        if: startsWith(matrix.platform, 'android')
+        run: |
+          npx -y firebase-tools@latest crashlytics:symbols:upload \
+            --app=1:98542877021:android:e555169791c86bb9c950b4 \
+            build/symbols
+
+      - name: Archive Dart symbols
+        if: startsWith(matrix.platform, 'android')
+        uses: actions/upload-artifact@v4
+        with:
+          name: dart-symbols-${{ matrix.arch }}
+          path: build/symbols
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Build iOS
         if: matrix.platform == 'ios'
