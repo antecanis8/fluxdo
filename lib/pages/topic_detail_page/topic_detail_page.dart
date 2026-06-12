@@ -1475,6 +1475,10 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
     ref.listen(topicDetailProvider(params), (previous, next) {
       if (!mounted) return;
       final detail = next.value;
+      // 记录话题标题到会话状态，供用户卡片「基于话题的私信」预填标题
+      if (detail != null) {
+        ref.read(topicSessionProvider(widget.topicId).notifier).setTopicTitle(detail.title);
+      }
       // 首次拿到 detail 后再决定是否应用默认嵌套视图：
       // 私信场景下树形视图 API 拉不到数据，跳过该配置
       if (!_defaultNestedViewApplied && detail != null) {

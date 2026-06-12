@@ -33,6 +33,8 @@ class User {
   final DateTime? lastPostedAt;
   final DateTime? lastSeenAt;
   final DateTime? createdAt;
+  final int? timeRead;        // 总阅读时长（秒）
+  final int? recentTimeRead;  // 近 60 天阅读时长（秒）
   final String? location;
   final String? website;
   final String? websiteName;
@@ -91,6 +93,8 @@ class User {
     this.lastPostedAt,
     this.lastSeenAt,
     this.createdAt,
+    this.timeRead,
+    this.recentTimeRead,
     this.location,
     this.website,
     this.websiteName,
@@ -149,6 +153,8 @@ class User {
       lastPostedAt: lastPostedAt,
       lastSeenAt: lastSeenAt,
       createdAt: createdAt,
+      timeRead: timeRead,
+      recentTimeRead: recentTimeRead,
       location: location,
       website: website,
       websiteName: websiteName,
@@ -209,6 +215,8 @@ class User {
       lastPostedAt: TimeUtils.parseUtcTime(json['last_posted_at'] as String?),
       lastSeenAt: TimeUtils.parseUtcTime(json['last_seen_at'] as String?),
       createdAt: TimeUtils.parseUtcTime(json['created_at'] as String?),
+      timeRead: json['time_read'] as int?,
+      recentTimeRead: json['recent_time_read'] as int?,
       location: json['location'] as String?,
       website: json['website'] as String?,
       websiteName: json['website_name'] as String?,

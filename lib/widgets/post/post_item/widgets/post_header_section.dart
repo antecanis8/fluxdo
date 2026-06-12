@@ -72,6 +72,7 @@ class _PostHeaderSectionState extends ConsumerState<PostHeaderSection> {
         key: ValueKey('avatar-${widget.post.id}'),
         post: widget.post,
         theme: theme,
+        topicId: widget.topicId,
       );
       _cachedPostId = widget.post.id;
     }

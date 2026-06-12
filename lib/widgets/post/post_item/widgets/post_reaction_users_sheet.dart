@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../../../l10n/s.dart';
 import '../../../../models/topic.dart';
-import '../../../../pages/user_profile_page.dart';
 import '../../../../services/discourse/discourse_service.dart';
 import '../../../../services/discourse_cache_manager.dart';
 import '../../../../services/emoji_handler.dart';
 import '../../../common/smart_avatar.dart';
+import '../../../user/user_card.dart';
 
 /// 获取 emoji 图片 URL（未加载完成时返回空字符串，由 errorBuilder 处理）
 String _getEmojiUrl(String emojiName) {
@@ -303,17 +303,21 @@ class _PostReactionUsersSheetState extends State<PostReactionUsersSheet> {
     final user = item.user;
     final displayName = user.name?.isNotEmpty == true ? user.name! : user.username;
 
-    return InkWell(
-      onTap: () {
-        Navigator.pop(context);
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => UserProfilePage(username: user.username),
-          ),
-        );
-      },
-      child: Padding(
+    return Builder(
+      builder: (rowContext) => InkWell(
+        onTap: () {
+          final box = rowContext.findRenderObject() as RenderBox?;
+          if (box == null || !box.hasSize) return;
+          final anchorRect = box.localToGlobal(Offset.zero) & box.size;
+          showUserCard(
+            context: rowContext,
+            anchorRect: anchorRect,
+            username: user.username,
+            avatarFallbackUrl: user.getAvatarUrl(size: 144),
+            nameFallback: user.name,
+          );
+        },
+        child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
           children: [
@@ -358,6 +362,7 @@ class _PostReactionUsersSheetState extends State<PostReactionUsersSheet> {
                 errorBuilder: (_, _, _) => const SizedBox(width: 20, height: 20),
               ),
           ],
+        ),
         ),
       ),
     );

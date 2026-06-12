@@ -137,6 +137,19 @@
   },
   "userProfile_location": "位置",
   "userProfile_message": "私信",
+  "userCard_viewProfile": "查看資料",
+  "userCard_score": "積分",
+  "userCard_lastPosted": "最後發佈",
+  "userCard_mute": "免打擾",
+  "userCard_ignore": "忽略",
+  "userCard_referenceTopicTitle": "回覆:{title}",
+  "@userCard_referenceTopicTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "userProfile_moreInfo": "更多信息",
   "userProfile_mostLiked": "贊最多",
   "userProfile_mostLikedBy": "被誰讚的最多",

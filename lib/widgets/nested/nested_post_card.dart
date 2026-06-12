@@ -277,6 +277,8 @@ class _NestedPostCardState extends ConsumerState<NestedPostCard> {
             NestedPostAvatar(
               avatarTemplate: post.avatarTemplate,
               username: post.username,
+              post: post,
+              topicId: widget.topicId,
             ),
           const SizedBox(width: _columnGap),
           Expanded(child: contentColumn),

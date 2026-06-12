@@ -48,6 +48,17 @@ mixin _UsersMixin on _DiscourseServiceBase {
     return User.fromJson(data['user'] ?? data);
   }
 
+  /// 获取用户卡片数据（card serializer，对应网页版 user-card）。
+  ///
+  /// 与 [getUser] 区别：走 `/u/{username}/card.json`，由 `UserCardSerializer` 渲染——
+  /// 含 `card_background_upload_url`（卡片背景，完整资料页 serializer 不返回）、
+  /// `bio_excerpt`（摘要简介）、`topic_post_count` 等卡片专用字段，且更轻量。
+  Future<User> getUserCard(String username) async {
+    final response = await _dio.get('/u/$username/card.json');
+    final data = response.data as Map<String, dynamic>;
+    return User.fromJson(data['user'] ?? data);
+  }
+
   /// 从预加载数据获取当前用户
   Future<User?> getPreloadedCurrentUser() async {
     try {

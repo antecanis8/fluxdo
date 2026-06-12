@@ -3,13 +3,13 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../../l10n/s.dart';
 import '../../../../constants.dart';
 import '../../../../models/topic.dart';
-import '../../../../pages/user_profile_page.dart';
 import '../../../../services/discourse_cache_manager.dart';
 import '../../../../services/emoji_handler.dart';
 import '../../../../utils/url_helper.dart';
 import '../../../common/flair_badge.dart';
 import '../../../common/smart_avatar.dart';
 import '../../../common/avatar_glow.dart';
+import '../../../user/user_card.dart';
 import '../../whisper_indicator.dart';
 import '../../post_boost/boost_danmaku.dart';
 import 'post_granted_badge.dart';
@@ -24,12 +24,14 @@ class PostAvatar extends StatefulWidget {
   final Post post;
   final ThemeData theme;
   final double radius;
+  final int? topicId;
 
   const PostAvatar({
     super.key,
     required this.post,
     required this.theme,
     this.radius = 20,
+    this.topicId,
   });
 
   @override
@@ -37,6 +39,29 @@ class PostAvatar extends StatefulWidget {
 }
 
 class _PostAvatarState extends State<PostAvatar> {
+  final LayerLink _link = LayerLink();
+
+  void _openUserCard() {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final topLeft = box.localToGlobal(Offset.zero);
+    final anchorRect = topLeft & box.size;
+    showUserCard(
+      context: context,
+      anchorRect: anchorRect,
+      layerLink: _link,
+      username: widget.post.username,
+      topicId: widget.topicId,
+      postNumber: widget.post.postNumber,
+      avatarFallbackUrl: widget.post.getAvatarUrl(size: 144),
+      nameFallback: widget.post.name,
+      flairUrl: widget.post.flairUrl,
+      flairName: widget.post.flairName,
+      flairBgColor: widget.post.flairBgColor,
+      flairColor: widget.post.flairColor,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final avatarUrl = widget.post.getAvatarUrl();
@@ -66,11 +91,8 @@ class _PostAvatarState extends State<PostAvatar> {
     }
 
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => UserProfilePage(username: widget.post.username)),
-      ),
-      child: avatar,
+      onTap: _openUserCard,
+      child: CompositedTransformTarget(link: _link, child: avatar),
     );
   }
 }
