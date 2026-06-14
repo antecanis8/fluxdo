@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/topic.dart';
 import '../../common/emoji_text.dart';
-import '../../../services/discourse_cache_manager.dart';
+import '../../common/smart_avatar.dart';
 import '../../../utils/url_helper.dart';
 import 'boost_content.dart';
 
@@ -22,8 +22,8 @@ class BoostBubble extends StatelessWidget {
     this.onLongPress,
     this.onTapWithContext,
     this.onLongPressWithContext,
-  })  : group = null,
-        expanded = false;
+  }) : group = null,
+       expanded = false;
 
   const BoostBubble.group({
     super.key,
@@ -50,31 +50,37 @@ class BoostBubble extends StatelessWidget {
 
     final theme = Theme.of(context);
     final parsed = BoostContentParser.parse(boost!.cooked);
-    final displayText = parsed.displayText.isNotEmpty ? parsed.displayText : 'Boost';
+    final displayText = parsed.displayText.isNotEmpty
+        ? parsed.displayText
+        : 'Boost';
 
     return Builder(
       builder: (bubbleContext) => GestureDetector(
-        onTap: onTapWithContext == null ? onTap : () => onTapWithContext!(bubbleContext),
+        onTap: onTapWithContext == null
+            ? onTap
+            : () => onTapWithContext!(bubbleContext),
         onLongPress: onLongPressWithContext == null
             ? onLongPress
             : () => onLongPressWithContext!(bubbleContext),
         child: Container(
           padding: const EdgeInsets.only(left: 3, top: 3, bottom: 3, right: 6),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            color: theme.colorScheme.surfaceContainerHighest.withValues(
+              alpha: 0.4,
+            ),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircleAvatar(
+              SmartAvatar(
+                imageUrl: boost!.user.avatarTemplate.isNotEmpty
+                    ? UrlHelper.resolveUrlWithCdn(
+                        boost!.user.avatarTemplate.replaceAll('{size}', '48'),
+                      )
+                    : null,
                 radius: 10,
-                backgroundImage: discourseImageProvider(
-                  UrlHelper.resolveUrlWithCdn(
-                    boost!.user.avatarTemplate.replaceAll('{size}', '48'),
-                  ),
-                ),
-                onBackgroundImageError: (_, _) {},
+                fallbackText: boost!.user.username,
               ),
               const SizedBox(width: 4),
               ConstrainedBox(
@@ -117,19 +123,25 @@ class _GroupedBoostBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final displayText = group.displayText.isNotEmpty ? group.displayText : 'Boost';
+    final displayText = group.displayText.isNotEmpty
+        ? group.displayText
+        : 'Boost';
     final avatars = _uniqueUsers(group.boosts);
 
     return Builder(
       builder: (bubbleContext) => GestureDetector(
-        onTap: onTapWithContext == null ? onTap : () => onTapWithContext!(bubbleContext),
+        onTap: onTapWithContext == null
+            ? onTap
+            : () => onTapWithContext!(bubbleContext),
         onLongPress: onLongPressWithContext == null
             ? onLongPress
             : () => onLongPressWithContext!(bubbleContext),
         child: Container(
           padding: const EdgeInsets.only(left: 3, top: 3, bottom: 3, right: 6),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            color: theme.colorScheme.surfaceContainerHighest.withValues(
+              alpha: 0.4,
+            ),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -197,7 +209,9 @@ class _AvatarStack extends StatelessWidget {
   Widget build(BuildContext context) {
     final visibleUsers = users.take(3).toList(growable: false);
     final avatarCount = visibleUsers.length;
-    final totalWidth = avatarCount <= 1 ? 20.0 : 20.0 + (avatarCount - 1) * 12.0;
+    final totalWidth = avatarCount <= 1
+        ? 20.0
+        : 20.0 + (avatarCount - 1) * 12.0;
 
     return SizedBox(
       width: totalWidth,
@@ -218,14 +232,17 @@ class _AvatarStack extends StatelessWidget {
                     width: 1.5,
                   ),
                 ),
-                child: CircleAvatar(
+                child: SmartAvatar(
+                  imageUrl: visibleUsers[i].avatarTemplate.isNotEmpty
+                      ? UrlHelper.resolveUrlWithCdn(
+                          visibleUsers[i].avatarTemplate.replaceAll(
+                            '{size}',
+                            '48',
+                          ),
+                        )
+                      : null,
                   radius: 10,
-                  backgroundImage: discourseImageProvider(
-                    UrlHelper.resolveUrlWithCdn(
-                      visibleUsers[i].avatarTemplate.replaceAll('{size}', '48'),
-                    ),
-                  ),
-                  onBackgroundImageError: (_, _) {},
+                  fallbackText: visibleUsers[i].username,
                 ),
               ),
             ),

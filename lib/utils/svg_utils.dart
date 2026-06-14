@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:math' as math;
+
 /// SVG 处理工具类
 ///
 /// 提供 SVG 内容清理功能，移除 jovial_svg 不支持的元素。
@@ -9,6 +12,39 @@
 /// - 嵌套 SVG 标签
 class SvgUtils {
   SvgUtils._();
+
+  /// 通过文件内容判断是否为 SVG，而不是依赖 URL 后缀。
+  static bool isSvgBytes(List<int> bytes) {
+    if (bytes.isEmpty) return false;
+
+    var start = 0;
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xEF &&
+        bytes[1] == 0xBB &&
+        bytes[2] == 0xBF) {
+      start = 3;
+    }
+
+    while (start < bytes.length && bytes[start] <= 32) {
+      start++;
+    }
+    if (start >= bytes.length) return false;
+
+    final end = math.min(bytes.length, start + 4096);
+    final sample = utf8
+        .decode(bytes.sublist(start, end), allowMalformed: true)
+        .trimLeft()
+        .toLowerCase();
+
+    if (sample.startsWith('<svg')) return true;
+    return sample.startsWith('<?xml') && sample.contains('<svg');
+  }
+
+  /// 将 SVG 字节按 UTF-8 解码。
+  static String decodeSvgBytes(List<int> bytes) {
+    final svg = utf8.decode(bytes, allowMalformed: true);
+    return svg.startsWith('\uFEFF') ? svg.substring(1) : svg;
+  }
 
   /// 清理 SVG 内容，移除渲染引擎不支持的元素
   static String sanitize(String svg) {
@@ -32,7 +68,11 @@ class SvgUtils {
 
     // 移除 <filter>...</filter>
     result = result.replaceAll(
-      RegExp(r'<filter\b[^>]*>.*?</filter>', caseSensitive: false, dotAll: true),
+      RegExp(
+        r'<filter\b[^>]*>.*?</filter>',
+        caseSensitive: false,
+        dotAll: true,
+      ),
       '',
     );
 

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/s.dart';
-import '../../../services/discourse_cache_manager.dart';
 import '../../../utils/dialog_utils.dart';
 import '../../../services/toast_service.dart';
+import '../../../widgets/common/smart_avatar.dart';
 import '../providers/ldc_reward_provider.dart';
 
 /// 打赏目标用户信息
@@ -99,7 +99,10 @@ class _LdcRewardSheetState extends ConsumerState<_LdcRewardSheet> {
       builder: (ctx) => AlertDialog(
         title: Text(context.l10n.reward_confirmTitle),
         content: Text(
-          context.l10n.reward_confirmMessage(target.name ?? target.username, amount.toInt()),
+          context.l10n.reward_confirmMessage(
+            target.name ?? target.username,
+            amount.toInt(),
+          ),
         ),
         actions: [
           TextButton(
@@ -163,7 +166,12 @@ class _LdcRewardSheetState extends ConsumerState<_LdcRewardSheet> {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
-      margin: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 16 + bottomInset),
+      margin: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: 16 + bottomInset,
+      ),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
@@ -188,9 +196,10 @@ class _LdcRewardSheetState extends ConsumerState<_LdcRewardSheet> {
             // 目标用户信息
             Row(
               children: [
-                CircleAvatar(
+                SmartAvatar(
+                  imageUrl: target.avatarUrl,
                   radius: 20,
-                  backgroundImage: discourseImageProvider(target.avatarUrl),
+                  fallbackText: target.username,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -218,7 +227,10 @@ class _LdcRewardSheetState extends ConsumerState<_LdcRewardSheet> {
             const SizedBox(height: 20),
 
             // 快捷金额
-            Text(context.l10n.reward_selectAmount, style: theme.textTheme.labelLarge),
+            Text(
+              context.l10n.reward_selectAmount,
+              style: theme.textTheme.labelLarge,
+            ),
             const SizedBox(height: 8),
             Row(
               children: _quickAmounts.map((amount) {
@@ -255,7 +267,9 @@ class _LdcRewardSheetState extends ConsumerState<_LdcRewardSheet> {
             TextField(
               controller: _amountController,
               onChanged: _onCustomAmountChanged,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
               ],
@@ -298,7 +312,9 @@ class _LdcRewardSheetState extends ConsumerState<_LdcRewardSheet> {
                       )
                     : Text(
                         _isAmountValid
-                            ? context.l10n.reward_submitWithAmount(_currentAmount!.toInt())
+                            ? context.l10n.reward_submitWithAmount(
+                                _currentAmount!.toInt(),
+                              )
                             : context.l10n.reward_selectOrInputAmount,
                       ),
               ),

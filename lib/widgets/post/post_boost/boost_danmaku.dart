@@ -5,9 +5,9 @@ import 'package:flutter/scheduler.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
 import '../../../models/topic.dart';
-import '../../../services/discourse_cache_manager.dart';
 import '../../../utils/url_helper.dart';
 import '../../common/emoji_text.dart';
+import '../../common/smart_avatar.dart';
 import 'boost_content.dart';
 
 /// Boost 弹幕：多轨道，从右往左飘，视频弹幕样式（透明背景 + 白字描边）。
@@ -132,8 +132,10 @@ class _BoostDanmakuState extends State<BoostDanmaku>
           _tryLaunchNext();
           final jitter =
               (_rng.nextDouble() * 2 - 1) * widget.launchIntervalJitterSeconds;
-          _secondsUntilNextLaunch =
-              math.max(0.3, widget.launchIntervalSeconds + jitter);
+          _secondsUntilNextLaunch = math.max(
+            0.3,
+            widget.launchIntervalSeconds + jitter,
+          );
         }
       }
     });
@@ -154,16 +156,19 @@ class _BoostDanmakuState extends State<BoostDanmaku>
 
     final group = _groups[_nextGroupIndex];
     _nextGroupIndex++;
-    final isHighlighted = widget.highlightUsername != null &&
+    final isHighlighted =
+        widget.highlightUsername != null &&
         group.boosts.any((b) => b.user.username == widget.highlightUsername);
 
-    _flying.add(_FlyingDanmaku(
-      group: group,
-      track: bestTrack,
-      x: _viewportWidth,
-      width: 0,
-      isHighlighted: isHighlighted,
-    ));
+    _flying.add(
+      _FlyingDanmaku(
+        group: group,
+        track: bestTrack,
+        x: _viewportWidth,
+        width: 0,
+        isHighlighted: isHighlighted,
+      ),
+    );
   }
 
   @override
@@ -192,12 +197,12 @@ class _BoostDanmakuState extends State<BoostDanmaku>
           final maxByHeight = constraints.maxHeight.isFinite
               ? (constraints.maxHeight / widget.trackHeight).floor()
               : widget.maxTrackCount;
-          final newTrackCount =
-              maxByHeight.clamp(1, widget.maxTrackCount).toInt();
+          final newTrackCount = maxByHeight
+              .clamp(1, widget.maxTrackCount)
+              .toInt();
           if (newTrackCount != _trackCount) {
             _trackCount = newTrackCount;
-            _trackLastRightEdge =
-                List.filled(_trackCount, -double.infinity);
+            _trackLastRightEdge = List.filled(_trackCount, -double.infinity);
           }
           final height = widget.trackHeight * _trackCount;
           return Align(
@@ -221,7 +226,7 @@ class _BoostDanmakuState extends State<BoostDanmaku>
                           onTap: widget.onBoostTap == null
                               ? null
                               : () =>
-                                  widget.onBoostTap!(item.group.boosts.first),
+                                    widget.onBoostTap!(item.group.boosts.first),
                           onSize: (size) {
                             if ((size.width - item.width).abs() > 0.5) {
                               item.width = size.width;
@@ -298,8 +303,9 @@ class _DanmakuItemState extends State<_DanmakuItem> {
 
     // 视频弹幕风格：白字 + 深色描边 / 暗色模式 = 浅描边
     final textColor = isDark ? Colors.white : Colors.white;
-    final strokeColor =
-        isDark ? Colors.black.withValues(alpha: 0.85) : Colors.black.withValues(alpha: 0.7);
+    final strokeColor = isDark
+        ? Colors.black.withValues(alpha: 0.85)
+        : Colors.black.withValues(alpha: 0.7);
     final highlightColor = theme.colorScheme.primary;
 
     final baseStyle = TextStyle(
@@ -309,9 +315,17 @@ class _DanmakuItemState extends State<_DanmakuItem> {
       color: widget.item.isHighlighted ? highlightColor : textColor,
       shadows: [
         // 四向 0.8px 描边 + 一层轻投影，保证在亮色背景也清晰可读
-        Shadow(color: strokeColor, blurRadius: 0, offset: const Offset(-0.8, 0)),
+        Shadow(
+          color: strokeColor,
+          blurRadius: 0,
+          offset: const Offset(-0.8, 0),
+        ),
         Shadow(color: strokeColor, blurRadius: 0, offset: const Offset(0.8, 0)),
-        Shadow(color: strokeColor, blurRadius: 0, offset: const Offset(0, -0.8)),
+        Shadow(
+          color: strokeColor,
+          blurRadius: 0,
+          offset: const Offset(0, -0.8),
+        ),
         Shadow(color: strokeColor, blurRadius: 0, offset: const Offset(0, 0.8)),
         Shadow(color: strokeColor, blurRadius: 1.5),
       ],
@@ -340,36 +354,36 @@ class _DanmakuItemState extends State<_DanmakuItem> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                _AvatarStrip(
-                  users: users,
-                  isHighlighted: widget.item.isHighlighted,
-                ),
-                const SizedBox(width: 6),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 260),
-                  child: EmojiText(
-                    fallbackText,
-                    style: baseStyle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  _AvatarStrip(
+                    users: users,
+                    isHighlighted: widget.item.isHighlighted,
                   ),
-                ),
-                if (showCount) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    '×${group.count}',
-                    style: baseStyle.copyWith(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: widget.item.isHighlighted
-                          ? highlightColor
-                          : Colors.amber.shade300,
+                  const SizedBox(width: 6),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 260),
+                    child: EmojiText(
+                      fallbackText,
+                      style: baseStyle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  if (showCount) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      '×${group.count}',
+                      style: baseStyle.copyWith(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: widget.item.isHighlighted
+                            ? highlightColor
+                            : Colors.amber.shade300,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
           ),
         ),
       ),
@@ -398,8 +412,9 @@ class _AvatarStrip extends StatelessWidget {
     final theme = Theme.of(context);
     const size = 18.0;
     const overlap = 10.0;
-    final totalWidth =
-        visible.isEmpty ? 0.0 : size + (visible.length - 1) * overlap;
+    final totalWidth = visible.isEmpty
+        ? 0.0
+        : size + (visible.length - 1) * overlap;
 
     final borderColor = isHighlighted
         ? theme.colorScheme.primary
@@ -421,23 +436,19 @@ class _AvatarStrip extends StatelessWidget {
                   shape: BoxShape.circle,
                   border: Border.all(color: borderColor, width: 1.2),
                   boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x66000000),
-                      blurRadius: 2,
-                    ),
+                    BoxShadow(color: Color(0x66000000), blurRadius: 2),
                   ],
                 ),
-                child: ClipOval(
-                  child: Image(
-                    image: discourseImageProvider(
-                      UrlHelper.resolveUrlWithCdn(
-                        visible[i].avatarTemplate.replaceAll('{size}', '48'),
-                      ),
-                    ),
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) =>
-                        const ColoredBox(color: Color(0x33FFFFFF)),
-                  ),
+                child: SmartAvatar(
+                  imageUrl: visible[i].avatarTemplate.isNotEmpty
+                      ? UrlHelper.resolveUrlWithCdn(
+                          visible[i].avatarTemplate.replaceAll('{size}', '48'),
+                        )
+                      : null,
+                  radius: size / 2,
+                  fallbackText: visible[i].username,
+                  backgroundColor: const Color(0x33FFFFFF),
+                  foregroundColor: Colors.white,
                 ),
               ),
             ),
@@ -466,7 +477,9 @@ class DanmakuIcon extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: CustomPaint(painter: _DanmakuIconPainter(color: color, off: off)),
+      child: CustomPaint(
+        painter: _DanmakuIconPainter(color: color, off: off),
+      ),
     );
   }
 }

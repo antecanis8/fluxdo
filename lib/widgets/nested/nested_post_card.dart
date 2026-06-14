@@ -12,10 +12,10 @@ import '../../utils/time_utils.dart';
 import '../content/collapsed_html_content.dart';
 import '../content/discourse_html_content/chunked/chunked_html_content.dart';
 import '../post/post_item/widgets/post_footer_section/post_footer_section.dart';
+import '../common/smart_avatar.dart';
 import 'nested_collapsed_bar.dart';
 import 'nested_post_gutter.dart';
 import 'nested_thread_sheet.dart';
-import '../../services/discourse_cache_manager.dart';
 
 // 桌面端布局常量
 const double _avatarSize = NestedPostAvatar.size;
@@ -607,14 +607,13 @@ class _NestedPostCardState extends ConsumerState<NestedPostCard> {
                 builder: (_) => UserProfilePage(username: post.username),
               ),
             ),
-            child: CircleAvatar(
-              radius: _mobileInlineAvatarSize / 2,
-              backgroundImage: post.avatarTemplate.isNotEmpty
-                  ? discourseImageProvider(
-                      NestedPostAvatar.resolveUrl(post.avatarTemplate),
-                    )
+            child: SmartAvatar(
+              imageUrl: post.avatarTemplate.isNotEmpty
+                  ? NestedPostAvatar.resolveUrl(post.avatarTemplate)
                   : null,
+              radius: _mobileInlineAvatarSize / 2,
               backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              fallbackText: post.username,
             ),
           ),
           const SizedBox(width: 4),

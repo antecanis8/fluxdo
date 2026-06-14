@@ -65,7 +65,9 @@ class _PostAvatarState extends State<PostAvatar> {
   @override
   Widget build(BuildContext context) {
     final avatarUrl = widget.post.getAvatarUrl();
-    final glowColor = AppConstants.siteCustomization.matchAvatarGlow(widget.post);
+    final glowColor = AppConstants.siteCustomization.matchAvatarGlow(
+      widget.post,
+    );
 
     Widget avatar = AvatarWithFlair(
       flairSize: widget.radius * 0.85,
@@ -107,11 +109,19 @@ class PostHeader extends StatelessWidget {
   final Widget cachedAvatarWidget;
   final ValueNotifier<bool>? isLoadingReplyHistoryNotifier;
   final VoidCallback? onToggleReplyHistory;
+
   /// 自定义回复指示点击回调（用于弹框内滚动跳转，不加载回复历史）
   final VoidCallback? onReplyIndicatorTap;
+
   /// 隐藏回复指示器
   final bool hideReplyIndicator;
-  final Widget Function(BuildContext context, String text, Color backgroundColor, Color textColor) buildCompactBadge;
+  final Widget Function(
+    BuildContext context,
+    String text,
+    Color backgroundColor,
+    Color textColor,
+  )
+  buildCompactBadge;
   final Widget timeAndFloorWidget;
 
   /// 弹幕开关：null = 不展示；true/false = 当前是否正在显示弹幕
@@ -154,7 +164,9 @@ class PostHeader extends StatelessWidget {
                 children: [
                   Flexible(
                     child: Text(
-                      (post.name != null && post.name!.isNotEmpty) ? post.name! : post.username,
+                      (post.name != null && post.name!.isNotEmpty)
+                          ? post.name!
+                          : post.username,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
@@ -181,7 +193,9 @@ class PostHeader extends StatelessWidget {
                     Tooltip(
                       message: post.userStatus!.description ?? '',
                       child: Image(
-                        image: emojiImageProvider(_getEmojiUrl(post.userStatus!.emoji!)),
+                        image: emojiImageProvider(
+                          _getEmojiUrl(post.userStatus!.emoji!),
+                        ),
                         width: 16,
                         height: 16,
                         errorBuilder: (_, _, _) => const SizedBox.shrink(),
@@ -190,11 +204,21 @@ class PostHeader extends StatelessWidget {
                   ],
                   if (isTopicOwner && post.postNumber > 1) ...[
                     const SizedBox(width: 4),
-                    buildCompactBadge(context, context.l10n.post_opBadge, theme.colorScheme.primaryContainer, theme.colorScheme.onPrimaryContainer),
+                    buildCompactBadge(
+                      context,
+                      context.l10n.post_opBadge,
+                      theme.colorScheme.primaryContainer,
+                      theme.colorScheme.onPrimaryContainer,
+                    ),
                   ],
                   if (isOwnPost) ...[
                     const SizedBox(width: 4),
-                    buildCompactBadge(context, context.l10n.post_meBadge, theme.colorScheme.tertiaryContainer, theme.colorScheme.onTertiaryContainer),
+                    buildCompactBadge(
+                      context,
+                      context.l10n.post_meBadge,
+                      theme.colorScheme.tertiaryContainer,
+                      theme.colorScheme.onTertiaryContainer,
+                    ),
                   ],
                   if (isWhisper) ...[
                     const SizedBox(width: 8),
@@ -220,13 +244,16 @@ class PostHeader extends StatelessWidget {
                       const SizedBox(width: 6),
                       Flexible(
                         child: () {
-                          final titleBuilder = AppConstants.siteCustomization.matchTitleStyle(post);
+                          final titleBuilder = AppConstants.siteCustomization
+                              .matchTitleStyle(post);
                           return titleBuilder != null
                               ? titleBuilder(post.userTitle!, 11)
                               : Text(
                                   post.userTitle!,
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                                    color: theme.colorScheme.primary.withValues(
+                                      alpha: 0.8,
+                                    ),
                                     fontSize: 11,
                                   ),
                                   overflow: TextOverflow.ellipsis,
@@ -236,9 +263,12 @@ class PostHeader extends StatelessWidget {
                       ),
                     ],
                     // 帖子头部徽章
-                    if (post.badgesGranted != null && post.badgesGranted!.isNotEmpty) ...[
+                    if (post.badgesGranted != null &&
+                        post.badgesGranted!.isNotEmpty) ...[
                       const SizedBox(width: 4),
-                      ...post.badgesGranted!.map((badge) => PostGrantedBadgeIcon(badge: badge)),
+                      ...post.badgesGranted!.map(
+                        (badge) => PostGrantedBadgeIcon(badge: badge),
+                      ),
                     ],
                   ],
                 ),
@@ -294,7 +324,9 @@ class PostHeader extends StatelessWidget {
                 child: DanmakuIcon(
                   color: danmakuActive!
                       ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                      : theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.7,
+                        ),
                   off: !danmakuActive!,
                   size: 20,
                 ),
@@ -308,9 +340,14 @@ class PostHeader extends StatelessWidget {
     );
   }
 
-  Widget _buildReplyIndicator(ThemeData theme, {bool isLoading = false, bool showUsername = false}) {
+  Widget _buildReplyIndicator(
+    ThemeData theme, {
+    bool isLoading = false,
+    bool showUsername = false,
+  }) {
     final replyToUser = post.replyToUser!;
-    final displayName = (replyToUser.name != null && replyToUser.name!.isNotEmpty)
+    final displayName =
+        (replyToUser.name != null && replyToUser.name!.isNotEmpty)
         ? replyToUser.name!
         : replyToUser.username;
 
@@ -319,27 +356,31 @@ class PostHeader extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.colorScheme.primary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.1),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (isLoading)
-            const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+            const SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
           else
             Icon(Icons.reply, size: 14, color: theme.colorScheme.primary),
           const SizedBox(width: 6),
-          CircleAvatar(
-            radius: 10,
-            backgroundColor: theme.colorScheme.primaryContainer,
-            backgroundImage: replyToUser.avatarTemplate.isNotEmpty
-                ? discourseImageProvider(
-                    UrlHelper.resolveUrlWithCdn(replyToUser.avatarTemplate.replaceAll('{size}', '40')),
+          SmartAvatar(
+            imageUrl: replyToUser.avatarTemplate.isNotEmpty
+                ? UrlHelper.resolveUrlWithCdn(
+                    replyToUser.avatarTemplate.replaceAll('{size}', '40'),
                   )
                 : null,
-            child: replyToUser.avatarTemplate.isEmpty
-                ? Text(replyToUser.username[0].toUpperCase(), style: const TextStyle(fontSize: 8, fontWeight: FontWeight.w600))
-                : null,
+            radius: 10,
+            backgroundColor: theme.colorScheme.primaryContainer,
+            fallbackText: replyToUser.username,
           ),
           if (showUsername) ...[
             const SizedBox(width: 4),

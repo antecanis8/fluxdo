@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../l10n/s.dart';
 import '../../../../models/topic.dart';
-import '../../../../services/discourse_cache_manager.dart';
+import '../../../common/smart_avatar.dart';
 import '../../../content/discourse_html_content/discourse_html_content.dart';
 
 /// 回复历史预览组件
@@ -32,7 +32,9 @@ class PostReplyHistory extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -42,7 +44,11 @@ class PostReplyHistory extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
             child: Row(
               children: [
-                Icon(Icons.format_quote_rounded, size: 16, color: theme.colorScheme.primary),
+                Icon(
+                  Icons.format_quote_rounded,
+                  size: 16,
+                  color: theme.colorScheme.primary,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   context.l10n.post_replyTo,
@@ -59,13 +65,21 @@ class PostReplyHistory extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.all(4),
-                    child: Icon(Icons.close, size: 16, color: theme.colorScheme.onSurfaceVariant),
+                    child: Icon(
+                      Icons.close,
+                      size: 16,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          Divider(height: 1, thickness: 0.5, color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
+          Divider(
+            height: 1,
+            thickness: 0.5,
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+          ),
           // Reply Items
           ...replyHistory!.map((replyPost) {
             final avatarUrl = replyPost.getAvatarUrl(size: 60);
@@ -76,15 +90,11 @@ class PostReplyHistory extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
+                    SmartAvatar(
+                      imageUrl: avatarUrl.isNotEmpty ? avatarUrl : null,
                       radius: 14,
                       backgroundColor: theme.colorScheme.primaryContainer,
-                      backgroundImage: avatarUrl.isNotEmpty
-                          ? discourseImageProvider(avatarUrl)
-                          : null,
-                      child: avatarUrl.isEmpty
-                          ? Text(replyPost.username[0].toUpperCase(), style: const TextStyle(fontSize: 10))
-                          : null,
+                      fallbackText: replyPost.username,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -94,16 +104,27 @@ class PostReplyHistory extends StatelessWidget {
                           Row(
                             children: [
                               Text(
-                                (replyPost.name != null && replyPost.name!.isNotEmpty) ? replyPost.name! : replyPost.username,
-                                style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+                                (replyPost.name != null &&
+                                        replyPost.name!.isNotEmpty)
+                                    ? replyPost.name!
+                                    : replyPost.username,
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                               const SizedBox(width: 6),
                               Text(
                                 '#${replyPost.postNumber}',
-                                style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
                               const Spacer(),
-                              Icon(Icons.arrow_outward, size: 12, color: theme.colorScheme.onSurfaceVariant),
+                              Icon(
+                                Icons.arrow_outward,
+                                size: 12,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                             ],
                           ),
                           const SizedBox(height: 4),
@@ -119,12 +140,18 @@ class PostReplyHistory extends StatelessWidget {
                               },
                               blendMode: BlendMode.dstIn,
                               child: Container(
-                                constraints: const BoxConstraints(maxHeight: 60),
+                                constraints: const BoxConstraints(
+                                  maxHeight: 60,
+                                ),
                                 child: SingleChildScrollView(
                                   physics: const NeverScrollableScrollPhysics(),
                                   child: DiscourseHtmlContent(
                                     html: replyPost.cooked,
-                                    textStyle: theme.textTheme.bodySmall?.copyWith(fontSize: 13 * contentFontScale, height: 1.4),
+                                    textStyle: theme.textTheme.bodySmall
+                                        ?.copyWith(
+                                          fontSize: 13 * contentFontScale,
+                                          height: 1.4,
+                                        ),
                                     compact: true,
                                   ),
                                 ),

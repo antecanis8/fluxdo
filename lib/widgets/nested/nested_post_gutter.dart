@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/topic.dart';
-import '../../services/discourse_cache_manager.dart';
 import '../../utils/url_helper.dart';
+import '../common/smart_avatar.dart';
 import '../user/user_card.dart';
 
 /// 嵌套帖子左侧头像（点击弹出用户卡片）
@@ -13,7 +13,9 @@ class NestedPostAvatar extends StatefulWidget {
   static const double size = 24.0;
 
   static String resolveUrl(String avatarTemplate) {
-    return UrlHelper.resolveUrlWithCdn(avatarTemplate.replaceAll('{size}', '48'));
+    return UrlHelper.resolveUrlWithCdn(
+      avatarTemplate.replaceAll('{size}', '48'),
+    );
   }
 
   const NestedPostAvatar({
@@ -43,7 +45,8 @@ class _NestedPostAvatarState extends State<NestedPostAvatar> {
       topicId: widget.topicId,
       postNumber: widget.post?.postNumber,
       avatarFallbackUrl:
-          widget.post?.getAvatarUrl(size: 144) ?? NestedPostAvatar.resolveUrl(widget.avatarTemplate),
+          widget.post?.getAvatarUrl(size: 144) ??
+          NestedPostAvatar.resolveUrl(widget.avatarTemplate),
       nameFallback: widget.post?.name,
       flairUrl: widget.post?.flairUrl,
       flairName: widget.post?.flairName,
@@ -58,14 +61,14 @@ class _NestedPostAvatarState extends State<NestedPostAvatar> {
       onTap: _openUserCard,
       child: CompositedTransformTarget(
         link: _link,
-        child: CircleAvatar(
+        child: SmartAvatar(
+          imageUrl: widget.avatarTemplate.isNotEmpty
+              ? UrlHelper.resolveUrlWithCdn(
+                  widget.avatarTemplate.replaceAll('{size}', '48'),
+                )
+              : null,
           radius: NestedPostAvatar.size / 2,
-          backgroundImage: discourseImageProvider(
-            UrlHelper.resolveUrlWithCdn(
-              widget.avatarTemplate.replaceAll('{size}', '48'),
-            ),
-          ),
-          onBackgroundImageError: (_, _) {},
+          fallbackText: widget.username,
         ),
       ),
     );
