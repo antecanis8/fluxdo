@@ -11,17 +11,39 @@ import 'loading_spinner.dart';
 /// LoadingDialog.hide(context);
 /// ```
 class LoadingDialog {
-  static void show(BuildContext context, {String? message}) {
+  static LoadingDialogController show(BuildContext context, {String? message}) {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final controller = LoadingDialogController._(navigator);
     showAppDialog(
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black26,
       builder: (context) => _LoadingDialogContent(message: message),
-    );
+    ).whenComplete(controller._markClosed);
+    return controller;
   }
 
   static void hide(BuildContext context) {
-    Navigator.of(context).pop();
+    Navigator.of(context, rootNavigator: true).pop();
+  }
+}
+
+class LoadingDialogController {
+  LoadingDialogController._(this._navigator);
+
+  final NavigatorState _navigator;
+  bool _closed = false;
+
+  void hide() {
+    if (_closed) return;
+    _closed = true;
+    if (_navigator.mounted && _navigator.canPop()) {
+      _navigator.pop();
+    }
+  }
+
+  void _markClosed() {
+    _closed = true;
   }
 }
 

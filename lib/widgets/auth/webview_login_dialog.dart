@@ -70,7 +70,8 @@ Future<WebViewLoginDialogResult?> showWebViewLoginDialog(
   required String siteKey,
   required String identifier,
   required String password,
-  required Future<String?> Function(WebViewLoginNeed2FA need) onNeedSecondFactor,
+  required Future<String?> Function(WebViewLoginNeed2FA need)
+  onNeedSecondFactor,
   String? hcaptchaCreateEndpoint,
 }) {
   return showDialog<WebViewLoginDialogResult>(
@@ -112,6 +113,7 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
   bool _processing = false; // hcaptcha 通过后登录请求进行中
   bool _finished = false; // 防止重复 pop / 回调重入
   bool _cookiesPrimed = false; // 方案 A: 是否已从 jar 预灌 cookie
+  bool _windowsInlineHtmlInjected = false;
   bool _cfRetryUsed = false; // CSRF 403 自动重验证只做一次, 避免死循环
   // 最近一次 _runLogin 的参数, CSRF 403 重新过 CF 后用同样参数重跑。
   // CSRF 失败发生在 JS __fluxdoLogin 第一步 (fetch /session/csrf), 此时
@@ -124,19 +126,22 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
   /// baseUrl=linux.do 让文档 origin 为 linux.do, JS fetch 相对路径同源,
   /// `credentials:'include'` 自动带共享 store 里的 cf_clearance/_forum_session。
   /// hcaptcha verify endpoint 候选: caller (从 Preferences) 优先, 然后
-   /// `/captcha/hcaptcha/create.json` (linux.do 当前路径), 最后
-   /// `/hcaptcha/create.json` (Discourse plugin 原生路径)。
-   /// 按顺序尝试, 第一个非 404/network-error 的就用。站长改 mount 时只需要
-   /// 在 fluxdo 设置里填新 endpoint, 不用发版。
-   List<String> get _hcaptchaCreateEndpoints {
-     final configured = widget.hcaptchaCreateEndpoint?.trim();
-     final list = <String>[
-       if (configured != null && configured.isNotEmpty) configured,
-       '/captcha/hcaptcha/create.json',
-       '/hcaptcha/create.json',
-     ];
-     return list.toSet().toList(); // 去重保序
-   }
+  /// `/captcha/hcaptcha/create.json` (linux.do 当前路径), 最后
+  /// `/hcaptcha/create.json` (Discourse plugin 原生路径)。
+  /// 按顺序尝试, 第一个非 404/network-error 的就用。站长改 mount 时只需要
+  /// 在 fluxdo 设置里填新 endpoint, 不用发版。
+  List<String> get _hcaptchaCreateEndpoints {
+    final configured = widget.hcaptchaCreateEndpoint?.trim();
+    final list = <String>[
+      if (configured != null && configured.isNotEmpty) configured,
+      '/captcha/hcaptcha/create.json',
+      '/hcaptcha/create.json',
+    ];
+    return list.toSet().toList(); // 去重保序
+  }
+
+  WebUri get _windowsBootstrapUrl =>
+      WebUri('${AppConstants.baseUrl}/robots.txt');
 
   String get _inlineHtml {
     final scheme = Theme.of(context).colorScheme;
@@ -179,6 +184,20 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
   <script>
     function call(name, payload) {
       try { window.flutter_inappwebview.callHandler(name, payload); } catch (e) {}
+    }
+    function notifyPageReady() {
+      try {
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() { call('hcaptcha_page_ready', null); });
+        });
+      } catch (e) {
+        setTimeout(function() { call('hcaptcha_page_ready', null); }, 80);
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', notifyPageReady, { once: true });
+    } else {
+      notifyPageReady();
     }
     function onPass(token) { call('hcaptcha_pass', token); }
     function onErr(err)    { call('hcaptcha_error', String(err || 'unknown')); }
@@ -264,6 +283,15 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
   }
 
   void _setupHandlers(InAppWebViewController controller) {
+    controller.addJavaScriptHandler(
+      handlerName: 'hcaptcha_page_ready',
+      callback: (args) {
+        if (mounted && _loading) {
+          setState(() => _loading = false);
+        }
+        return null;
+      },
+    );
     // hcaptcha 通过 → 首次驱动登录 (带 hcaptcha token)
     controller.addJavaScriptHandler(
       handlerName: 'hcaptcha_pass',
@@ -278,7 +306,9 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
     controller.addJavaScriptHandler(
       handlerName: 'hcaptcha_error',
       callback: (args) {
-        debugPrint('[WebViewLogin] hcaptcha error: ${args.isNotEmpty ? args.first : ""}');
+        debugPrint(
+          '[WebViewLogin] hcaptcha error: ${args.isNotEmpty ? args.first : ""}',
+        );
         return null;
       },
     );
@@ -316,7 +346,7 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
       final cookieManager = Platform.isWindows
           ? WindowsWebViewEnvironmentService.instance.cookieManager
           : CookieManager.instance();
-      final url = WebUri('https://linux.do/');
+      final url = WebUri(AppConstants.baseUrl);
       for (final pair in header.split('; ')) {
         final idx = pair.indexOf('=');
         if (idx <= 0) continue;
@@ -328,6 +358,50 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
       debugPrint('[WebViewLogin] 已从 jar 预灌 cookie 到登录 WebView store');
     } catch (e) {
       debugPrint('[WebViewLogin] 预灌 cookie 失败 (继续, 依赖共享 store): $e');
+    }
+  }
+
+  /// Windows flutter_inappwebview 0.7.x 会用 WebView2 NavigateToString()
+  /// 加载 initialData, 原生层忽略 baseUrl, 导致文档不是 linux.do origin。
+  /// hCaptcha 会把 about:blank/opaque origin 判成 invalid-data。这里先导航到
+  /// linux.do 的轻量静态资源拿真实 origin, 再写入同一份内嵌登录页。
+  Future<void> _injectWindowsInlineHtml(
+    InAppWebViewController controller,
+  ) async {
+    if (_finished) return;
+    if (_windowsInlineHtmlInjected) {
+      return;
+    }
+    try {
+      final probe = await controller.evaluateJavascript(
+        source: '''
+({
+  href: window.location.href,
+  origin: window.location.origin,
+  contentType: document.contentType,
+  readyState: document.readyState
+})
+''',
+      );
+      final origin = probe is Map ? probe['origin']?.toString() : null;
+      if (origin != AppConstants.baseUrl) {
+        debugPrint('[WebViewLogin] Windows bootstrap origin not ready: $probe');
+        return;
+      }
+
+      final html = jsonEncode(_inlineHtml);
+      _windowsInlineHtmlInjected = true;
+      await controller.evaluateJavascript(
+        source:
+            '''
+document.open();
+document.write($html);
+document.close();
+''',
+      );
+    } catch (e) {
+      debugPrint('[WebViewLogin] Windows hcaptcha bootstrap 失败: $e');
+      _finishFailure(LoginErrorKind.unknown, '人机验证页面初始化失败');
     }
   }
 
@@ -351,7 +425,9 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
     final id = jsonEncode(widget.identifier);
     final pwd = jsonEncode(widget.password);
     final tok = hcaptchaToken == null ? 'null' : jsonEncode(hcaptchaToken);
-    final sf = secondFactorToken == null ? 'null' : jsonEncode(secondFactorToken);
+    final sf = secondFactorToken == null
+        ? 'null'
+        : jsonEncode(secondFactorToken);
     try {
       await controller.evaluateJavascript(
         source: 'window.__fluxdoLogin($id, $pwd, $tok, $sf);',
@@ -384,7 +460,10 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
         await _handleCsrfFailure(status);
         return;
       case 'hcaptcha':
-        _finishFailure(LoginErrorKind.unknown, '人机验证失败, 请重试 (hcaptcha $status)');
+        _finishFailure(
+          LoginErrorKind.unknown,
+          '人机验证失败, 请重试 (hcaptcha $status)',
+        );
         return;
       case 'exception':
         _finishFailure(LoginErrorKind.network, '登录请求异常: $body');
@@ -586,12 +665,21 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
                                                 .instance
                                                 .environment
                                           : null,
-                                      initialData: InAppWebViewInitialData(
-                                        data: _inlineHtml,
-                                        baseUrl: WebUri('https://linux.do/'),
-                                        mimeType: 'text/html',
-                                        encoding: 'utf-8',
-                                      ),
+                                      initialUrlRequest: Platform.isWindows
+                                          ? URLRequest(
+                                              url: _windowsBootstrapUrl,
+                                            )
+                                          : null,
+                                      initialData: Platform.isWindows
+                                          ? null
+                                          : InAppWebViewInitialData(
+                                              data: _inlineHtml,
+                                              baseUrl: WebUri(
+                                                AppConstants.baseUrl,
+                                              ),
+                                              mimeType: 'text/html',
+                                              encoding: 'utf-8',
+                                            ),
                                       initialSettings: InAppWebViewSettings(
                                         javaScriptEnabled: true,
                                         transparentBackground: true,
@@ -604,8 +692,8 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
                                       initialUserScripts:
                                           WebViewSettings.compatPolyfillScripts,
                                       onReceivedServerTrustAuthRequest:
-                                          (_, challenge) => WebViewSettings
-                                              .handleServerTrustAuthRequest(
+                                          (_, challenge) =>
+                                              WebViewSettings.handleServerTrustAuthRequest(
                                                 challenge,
                                               ),
                                       onWebViewCreated: (controller) {
@@ -615,16 +703,46 @@ class _WebViewLoginDialogState extends State<_WebViewLoginDialog> {
                                         );
                                         _setupHandlers(controller);
                                       },
-                                      onLoadStop: (_, _) {
+                                      onLoadStop: (controller, _) async {
+                                        if (Platform.isWindows) {
+                                          await _injectWindowsInlineHtml(
+                                            controller,
+                                          );
+                                          return;
+                                        }
                                         if (mounted) {
                                           setState(() => _loading = false);
                                         }
                                       },
+                                      onProgressChanged:
+                                          (controller, progress) async {
+                                            if (Platform.isWindows &&
+                                                progress >= 100) {
+                                              await _injectWindowsInlineHtml(
+                                                controller,
+                                              );
+                                            }
+                                          },
+                                      onReceivedError:
+                                          (controller, request, error) async {
+                                            if (Platform.isWindows &&
+                                                request.isForMainFrame ==
+                                                    true) {
+                                              await _injectWindowsInlineHtml(
+                                                controller,
+                                              );
+                                            }
+                                          },
                                     ),
                                   ),
                                   if (_loading)
-                                    const Center(
-                                      child: CircularProgressIndicator(),
+                                    Positioned.fill(
+                                      child: ColoredBox(
+                                        color: scheme.surface,
+                                        child: const Center(
+                                          child: CircularProgressIndicator(),
+                                        ),
+                                      ),
                                     ),
                                   if (_processing)
                                     Positioned.fill(
@@ -678,7 +796,9 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+          bottom: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
+          ),
         ),
       ),
       child: Row(

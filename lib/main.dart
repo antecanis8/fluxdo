@@ -714,11 +714,12 @@ class _MainPageState extends ConsumerState<MainPage>
       next,
     ) {
       next.whenData((_) {
-        if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
           AppStateRefresher.refreshAll(
             ProviderScope.containerOf(context, listen: false),
           );
-        }
+        });
       });
     });
     _currentUserSub = ref.listenManual<AsyncValue<User?>>(currentUserProvider, (

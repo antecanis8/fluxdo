@@ -245,21 +245,28 @@ class _TopicsPageState extends ConsumerState<TopicsPage>
       context,
     ).push<bool>(MaterialPageRoute(builder: (_) => const LoginPage()));
     if (result == true && mounted) {
-      LoadingDialog.show(context, message: context.l10n.common_loadingData);
-
-      AppStateRefresher.refreshAll(
-        ProviderScope.containerOf(context, listen: false),
+      final loading = LoadingDialog.show(
+        context,
+        message: context.l10n.common_loadingData,
       );
-
       try {
+        // 等加载弹框完成首帧构建后再刷新 Riverpod provider，避免在
+        // OverlayEntry build 过程中触发 ProviderScope markNeedsBuild。
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+
+        AppStateRefresher.refreshAll(
+          ProviderScope.containerOf(context, listen: false),
+        );
+
         await Future.wait([
           ref.read(currentUserProvider.future),
           ref.read(topicListProvider(null).future),
         ]).timeout(const Duration(seconds: 10));
-      } catch (_) {}
-
-      if (mounted) {
-        LoadingDialog.hide(context);
+      } catch (e) {
+        debugPrint('[TopicsPage] 登录后刷新失败/超时: $e');
+      } finally {
+        loading.hide();
       }
     }
   }

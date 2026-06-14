@@ -178,23 +178,29 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       MaterialPageRoute(builder: (_) => const LoginPage()),
     );
     if (result == true && mounted) {
-      LoadingDialog.show(context, message: context.l10n.profile_loadingData);
-
-      AppStateRefresher.refreshAll(
-        ProviderScope.containerOf(context, listen: false),
+      final loading = LoadingDialog.show(
+        context,
+        message: context.l10n.profile_loadingData,
       );
-
       try {
+        // 等加载弹框首帧结束后再刷新 provider，避免登录路由恢复时和
+        // Overlay/TickerMode 的构建时机相撞。
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+
+        AppStateRefresher.refreshAll(
+          ProviderScope.containerOf(context, listen: false),
+        );
+
         await Future.wait([
           ref.read(currentUserProvider.future),
           ref.read(userSummaryProvider.future),
         ]).timeout(const Duration(seconds: 10));
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[ProfilePage] 登录后刷新失败/超时: $e');
         // 超时或错误时继续
-      }
-
-      if (mounted) {
-        LoadingDialog.hide(context);
+      } finally {
+        loading.hide();
       }
     }
   }
