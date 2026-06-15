@@ -11,6 +11,12 @@ class NumberUtils {
     return count.toString();
   }
 
+  /// 格式化带趋势符号的整数，正数加 +，负数保留 -。
+  static String formatSignedInt(int value) {
+    if (value > 0) return '+$value';
+    return value.toString();
+  }
+
   /// 格式化持续时间（秒 → 完整可读字符串，用于 Tooltip）
   /// 例：90061 → "1天1小时", 3661 → "1小时1分钟", 120 → "2分钟"
   static String formatDurationLong(int seconds) {
@@ -39,8 +45,12 @@ class NumberUtils {
     final totalHours = seconds / 3600;
     final totalDays = seconds / 86400;
 
-    if (totalDays >= 1) return '${totalDays.toStringAsFixed(totalDays >= 10 ? 0 : 1)}d';
-    if (totalHours >= 1) return '${totalHours.toStringAsFixed(totalHours >= 10 ? 0 : 1)}h';
+    if (totalDays >= 1) {
+      return '${totalDays.toStringAsFixed(totalDays >= 10 ? 0 : 1)}d';
+    }
+    if (totalHours >= 1) {
+      return '${totalHours.toStringAsFixed(totalHours >= 10 ? 0 : 1)}h';
+    }
     return '${totalMinutes.toInt()}m';
   }
 }
