@@ -498,7 +498,7 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
         currentUrl: currentUrl,
         controller: controller,
         cookieNames: null,
-        excludeCookieNames: CookieJarService.sessionCookieNames,
+        excludeCookieNames: CookieJarService.authCookieNames,
         requestGeneration: _flowGeneration,
       );
       final tToken = await _readTTokenFromWebView(
@@ -528,10 +528,6 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
       }
 
       _loginHandled = true;
-      // 指纹 POST 改为 fire-and-forget：后续 _finalizeLoginBeforeExit +
-      // evaluateJavascript + _finalizeLoginBootstrap 链路本身就会 await 一段时间，
-      // 足以让 WebView 内的 visitor_id POST 自然完成；
-      // 不再为指纹单独等待最多 15 秒，避免阻塞登录交接。
       unawaited(_waitForFingerprintPost());
       final finalToken = await _finalizeLoginBeforeExit(
         controller,
@@ -576,11 +572,9 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
     AuthSession().advance();
     final loginGeneration = AuthSession().generation;
 
-    await BoundarySyncService.instance.syncFromWebView(
+    await _syncAuthCookiesFromWebView(
+      controller,
       currentUrl: currentUrl,
-      controller: controller,
-      cookieNames: CookieJarService.sessionCookieNames,
-      allowLowConfidenceSessionCookies: true,
       requestGeneration: loginGeneration,
     );
 
@@ -589,8 +583,8 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
         ? jarToken
         : webViewToken;
     final tokenMatch = jarToken == webViewToken;
-    final jarSessionCookies = await _cookieJar
-        .getSessionCookieDiagnosticsForRequest(
+    final jarAuthCookies = await _cookieJar
+        .getAuthCookieDiagnosticsForRequest(
           uri: Uri.parse(AppConstants.baseUrl),
         );
     LogWriter.instance.write({
@@ -606,7 +600,7 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
       'finalTokenLen': finalToken.length,
       'tokenMatch': tokenMatch,
       'jarTokenMissing': jarToken == null || jarToken.isEmpty,
-      'jarSessionCookies': jarSessionCookies,
+      'jarAuthCookies': jarAuthCookies,
     });
     if (!tokenMatch) {
       debugPrint(
@@ -616,6 +610,20 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
 
     _service.setToken(finalToken);
     return finalToken;
+  }
+
+  Future<void> _syncAuthCookiesFromWebView(
+    InAppWebViewController controller, {
+    required String? currentUrl,
+    required int requestGeneration,
+  }) async {
+    await BoundarySyncService.instance.syncFromWebView(
+      currentUrl: currentUrl,
+      controller: controller,
+      cookieNames: CookieJarService.authCookieNames,
+      allowLowConfidenceSessionCookies: true,
+      requestGeneration: requestGeneration,
+    );
   }
 
   Future<void> _finalizeLoginBootstrap({
@@ -645,8 +653,8 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
 
       final jarToken = await _cookieJar.getTToken();
       final tokenMatch = jarToken == token;
-      final jarSessionCookies = await _cookieJar
-          .getSessionCookieDiagnosticsForRequest(
+      final jarAuthCookies = await _cookieJar
+          .getAuthCookieDiagnosticsForRequest(
             uri: Uri.parse(AppConstants.baseUrl),
           );
       LogWriter.instance.write({
@@ -660,7 +668,7 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
         'tokenMatch': tokenMatch,
         'currentUrl': currentUrl,
         'reusedPreloaded': reusedPreloaded,
-        'jarSessionCookies': jarSessionCookies,
+        'jarAuthCookies': jarAuthCookies,
       });
     } on TimeoutException {
       debugPrint('[Login] 登录态收尾超时（${finalizeTimeout.inSeconds}s），走兜底广播');

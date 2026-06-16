@@ -128,7 +128,7 @@ class _LoginPageState extends State<LoginPage>
     for (var i = 0; i < 3; i++) {
       await BoundarySyncService.instance.syncFromWebView(
         cookieNames: null,
-        excludeCookieNames: CookieJarService.sessionCookieNames,
+        excludeCookieNames: CookieJarService.authCookieNames,
         requestGeneration: requestGeneration,
       );
       clearance = await jar.getCfClearance();

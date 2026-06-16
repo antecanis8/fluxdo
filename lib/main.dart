@@ -29,6 +29,7 @@ import 'services/network/cookie/cookie_devtools_extension.dart';
 import 'services/network/cookie/cookie_jar_service.dart';
 import 'services/network/cookie/cookie_store_observer.dart';
 import 'services/network/cookie/webview_cookie_priming.dart';
+import 'services/webview_session_cookie_refresh_service.dart';
 import 'services/network/adapters/cronet_fallback_service.dart';
 import 'services/local_notification_service.dart';
 import 'services/data_management/cache_size_service.dart';
@@ -268,6 +269,9 @@ Future<void> main() async {
     ) {
       debugPrint('[Main] WebView cookie priming 失败: $e');
     }),
+  );
+  WebViewSessionCookieRefreshService.instance.ensureInBackground(
+    reason: 'startup',
   );
   try {
     final rhttp = await Future.any([
@@ -954,6 +958,10 @@ class _MainPageState extends ConsumerState<MainPage>
           // 磁盘值，避免主 isolate 用旧缓存覆盖后台轮换的 token
           CookieJarService().reloadPersistedCookies();
         }
+        WebViewSessionCookieRefreshService.instance.ensureInBackground(
+          reason: 'resume',
+          force: true,
+        );
         ref.invalidate(notificationListProvider);
         // 检查 DOH 代理是否在后台期间失效，若失效则自动重启
         NetworkSettingsService.instance.ensureProxyAlive();

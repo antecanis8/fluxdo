@@ -178,6 +178,8 @@ class BoundarySyncService {
         final value = wc.value?.toString() ?? '';
         final isSessionCookie =
             CookieJarService.sessionCookieNames.contains(wc.name);
+        final isHostOnlyCookie =
+            CookieJarService.hostOnlyCookieNames.contains(wc.name);
         final lowConfidenceSnapshot = _isLowConfidenceWebViewCookie(wc);
         if (isSessionCookie &&
             lowConfidenceSnapshot &&
@@ -192,7 +194,7 @@ class BoundarySyncService {
         String? domain;
         final rawDomain = wc.domain?.trim();
         final shouldForceSessionHostOnly =
-            io.Platform.isAndroid && isSessionCookie;
+            io.Platform.isAndroid && isHostOnlyCookie;
         if (shouldForceSessionHostOnly) {
           domain = null;
           if (rawDomain != null && rawDomain.isNotEmpty) {
@@ -211,8 +213,9 @@ class BoundarySyncService {
           // 会回填裸 host 到 domain 字段, 这里必须当 host-only 处理,
           // 否则 _t 等会话 cookie 会被写成 domain cookie 挂到子域名上)
           domain = null;
-        } else if (isSessionCookie) {
-          // 会话 Cookie 缺失 domain 时，保持 host-only 语义，不再放大到子域名。
+        } else if (isHostOnlyCookie) {
+          // 主域 host-only Cookie 缺失 domain 时，保持 host-only 语义，
+          // 不再放大到子域名。
           domain = null;
         } else {
           // 旧 Android（GET_COOKIE_INFO 不支持）：domain 为 null

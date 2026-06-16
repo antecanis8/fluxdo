@@ -532,10 +532,10 @@ class SessionCookieSentinel {
         (v) => v.value == jarValue || v.value == jarValueDecoded,
       );
 
-      // Discourse session cookies are server-authoritative. A WebView snapshot
-      // can contain stale host/domain variants, so never pick a non-jar value
-      // for _t / _forum_session merely because it differs from the jar value.
-      if (CookieJarService.sessionCookieNames.contains(name)) {
+      // Auth cookies are server-authoritative. A WebView snapshot can contain
+      // stale host/domain variants, so never pick a non-jar value merely
+      // because it differs from the jar value.
+      if (CookieJarService.authCookieNames.contains(name)) {
         return _WinnerInfo(
           cookieInfo:
               jarMatch ?? CookieFullInfo(name: name, value: jarCookie.value),

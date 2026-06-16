@@ -358,7 +358,7 @@ class WebViewHttpAdapter implements HttpClientAdapter {
         requestGeneration: options.extra['_sessionGeneration'] as int?,
         excludeCookieNames: trustsWebViewSession
             ? null
-            : CookieJarService.sessionCookieNames,
+            : CookieJarService.authCookieNames,
       );
     }
 

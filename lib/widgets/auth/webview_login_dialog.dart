@@ -12,6 +12,7 @@ import '../../services/discourse/discourse_service.dart';
 import '../../services/network/cookie/boundary_sync_service.dart';
 import '../../services/network/cookie/cookie_jar_service.dart';
 import '../../services/toast_service.dart';
+import '../../services/webview_session_cookie_refresh_service.dart';
 import '../../services/webview_settings.dart';
 import '../../services/windows_webview_environment_service.dart';
 
@@ -532,7 +533,7 @@ document.close();
     for (var i = 0; i < 3; i++) {
       await BoundarySyncService.instance.syncFromWebView(
         cookieNames: null,
-        excludeCookieNames: CookieJarService.sessionCookieNames,
+        excludeCookieNames: CookieJarService.authCookieNames,
         requestGeneration: _flowGeneration,
       );
       final clearance = await CookieJarService().getCfClearance();
@@ -584,14 +585,26 @@ document.close();
       }
       return;
     }
-    // pop 前用 controller 把会话 cookie 落 jar (pop 后 WebView dispose, CDP 读不到)
+    // pop 前在同源轻量页里跑站点 session bootstrap，再把 cookie 落 jar。
+    // 不能加载完整 Discourse 前端，低版本 iOS/WKWebView 兼容性不够稳定。
     try {
+      final controller = _controller;
+      if (controller != null) {
+        await WebViewSessionCookieRefreshService.instance.runOnController(
+          controller,
+          reason: 'native_login_success',
+        );
+      }
       await BoundarySyncService.instance.syncFromWebView(
-        controller: _controller,
+        controller: controller,
         currentUrl: 'https://linux.do/',
-        cookieNames: CookieJarService.sessionCookieNames,
+        cookieNames: null,
         allowLowConfidenceSessionCookies: true,
         requestGeneration: _flowGeneration,
+        trusted: true,
+      );
+      await WebViewSessionCookieRefreshService.instance.logCookieSummary(
+        reason: 'native_login_success',
       );
     } catch (e) {
       debugPrint('[WebViewLogin] syncFromWebView 失败: $e');

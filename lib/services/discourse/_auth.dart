@@ -892,6 +892,11 @@ mixin _AuthMixin on _DiscourseServiceBase {
           options.extra['_sessionCookieFingerprint'] = sessionState.fingerprint;
 
           if (_tToken != null && _tToken!.isNotEmpty) {
+            if (!_isLoggingOut) {
+              await WebViewSessionCookieRefreshService.instance.ensureSynced(
+                reason: 'dio_request:${options.method}',
+              );
+            }
             options.headers['Discourse-Logged-In'] = 'true';
             if (UserPresenceService().isPresent) {
               options.headers['Discourse-Present'] = 'true';
@@ -1440,6 +1445,10 @@ mixin _AuthMixin on _DiscourseServiceBase {
     _tToken = tToken;
     _credentialsLoaded = false;
     AuthIssueNoticeService.instance.clearSessionCookieRepairHint();
+    WebViewSessionCookieRefreshService.instance.ensureInBackground(
+      reason: 'login_success',
+      force: true,
+    );
     _authStateController.add(null);
   }
 

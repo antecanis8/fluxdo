@@ -39,6 +39,19 @@ class CookieJarService {
     '_forum_session',
   };
 
+  /// 登录收口需要同步的核心 cookie 集合。
+  ///
+  /// 额外由页面脚本/服务端风控产生的 cookie 不在这里按名字维护，
+  /// 由 WebViewSessionCookieRefreshService 加载页面后统一同步。
+  static const Set<String> authCookieNames = {
+    ...sessionCookieNames,
+  };
+
+  /// 主域 host-only cookie。
+  static const Set<String> hostOnlyCookieNames = {
+    ...authCookieNames,
+  };
+
   /// WV 必须保持与 jar 同步的关键 cookie 集合。
   ///
   /// 用于 Priming 重灌 / Sentinel sweep / 反向同步等核心同步路径。
@@ -47,12 +60,12 @@ class CookieJarService {
   /// - 该 cookie 是否会出现在主站 (linux.do) 响应中
   ///
   /// 当前条目:
-  /// - sessionCookieNames: Discourse 论坛登录
+  /// - authCookieNames: Discourse 论坛登录 cookie
   /// - cf_clearance: Cloudflare 反爬虫挑战 token
   /// - linux_do_credit_session_id: LDC 应用 session,主站会读它来显示
   ///   LDC 积分/绑定状态, WV 缺失会导致 LDC 相关 UI 失效
   static Set<String> criticalCookieNames = {
-    ...sessionCookieNames,
+    ...authCookieNames,
     'cf_clearance',
     'linux_do_credit_session_id',
   };
@@ -105,8 +118,8 @@ class CookieJarService {
     await _migrateSessionCookiesToHostOnly();
   }
 
-  /// 历史脏数据迁移: 把 sessionCookieNames 里被错误存为 domain cookie
-  /// 的 _t / _forum_session 改回 host-only。
+  /// 历史脏数据迁移: 把 authCookieNames 里被错误存为 domain cookie
+  /// 的登录核心 cookie 改回 host-only。
   ///
   /// 触发原因: 早期版本 boundary_sync 把 WebView 回读的裸 host(无前导点)
   /// 当作 Domain= 直接写入 jar, 导致 _t 等 host-only cookie 变成 domain
@@ -122,7 +135,7 @@ class CookieJarService {
       final patched = <CanonicalCookie>[];
 
       for (final cookie in all) {
-        if (!sessionCookieNames.contains(cookie.name)) continue;
+        if (!authCookieNames.contains(cookie.name)) continue;
         if (cookie.hostOnly) continue;
         final normalized = cookie.normalizedDomain;
         if (normalized != baseHost) continue;
@@ -274,6 +287,16 @@ class CookieJarService {
     );
   }
 
+  /// 加载应用主域下的登录相关 Cookie 诊断信息。
+  Future<List<Map<String, dynamic>>> getAuthCookieDiagnosticsForRequest({
+    Uri? uri,
+  }) {
+    return getCookieDiagnosticsForRequest(
+      uri ?? Uri.parse(AppConstants.baseUrl),
+      names: authCookieNames,
+    );
+  }
+
   /// 加载所有 CanonicalCookie。
   Future<List<CanonicalCookie>> loadAllCanonicalCookies() async {
     if (!_initialized) await initialize();
@@ -401,7 +424,7 @@ class CookieJarService {
 
       // WebView cookie store 清理（平台策略处理差异）
       await _strategy.clearWebViewCookies(webViewCookieManager, knownHosts);
-      for (final name in sessionCookieNames) {
+      for (final name in authCookieNames) {
         await _deleteWebViewCookieVariants(name, knownHosts);
       }
 

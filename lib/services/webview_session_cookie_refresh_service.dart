@@ -1,0 +1,525 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io' as io;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+
+import '../constants.dart';
+import 'log/log_writer.dart';
+import 'network/cookie/boundary_sync_service.dart';
+import 'network/cookie/cookie_jar_service.dart';
+import 'network/cookie/webview_cookie_priming.dart';
+import 'webview_settings.dart';
+import 'windows_webview_environment_service.dart';
+
+/// 让 WebView 浏览器会话与 native CookieJar 保持一致。
+///
+/// 一些站点会在登录后的普通页面里由 JS/XHR 产生额外的 HttpOnly/session
+/// cookie。native HTTP 无法自行生成这些 cookie，也不应该按名字伪造。
+///
+/// 这里不加载完整 Discourse/Ember 前端，而是在同源轻量文档中运行站点的
+/// 会话 bootstrap 脚本。当前 linux.do 的 bootstrap 来自 fingerprint 插件:
+/// 动态发现插件包后，只抽出 FingerprintJS 与 endpoint，用 WebView 自己的
+/// JS/网络栈 POST，让服务端自然产生 HttpOnly session cookie。随后全量同步
+/// WebView cookie store 回 CookieJar。
+class WebViewSessionCookieRefreshService {
+  WebViewSessionCookieRefreshService._();
+  static final WebViewSessionCookieRefreshService instance =
+      WebViewSessionCookieRefreshService._();
+
+  static const Duration _attemptCooldown = Duration(seconds: 45);
+  static const Duration _successTtl = Duration(minutes: 15);
+  static const Duration _bootstrapTimeout = Duration(seconds: 18);
+
+  final CookieJarService _jar = CookieJarService();
+
+  Future<bool>? _activeRefresh;
+  DateTime? _lastAttemptAt;
+  DateTime? _lastSuccessAt;
+
+  DateTime? get lastSuccessAt => _lastSuccessAt;
+
+  /// 确保当前进程已经让 WebView 登录页面跑过一次并同步 cookie。
+  Future<bool> ensureSynced({
+    String reason = 'unknown',
+    bool force = false,
+  }) async {
+    if (!_jar.isInitialized) {
+      await _jar.initialize();
+    }
+
+    final tToken = await _jar.getTToken();
+    if (tToken == null || tToken.isEmpty) {
+      return false;
+    }
+
+    final lastSuccessAt = _lastSuccessAt;
+    if (!force &&
+        lastSuccessAt != null &&
+        DateTime.now().difference(lastSuccessAt) < _successTtl) {
+      return true;
+    }
+
+    final active = _activeRefresh;
+    if (active != null) {
+      return active;
+    }
+
+    final now = DateTime.now();
+    final lastAttemptAt = _lastAttemptAt;
+    if (!force &&
+        lastAttemptAt != null &&
+        now.difference(lastAttemptAt) < _attemptCooldown) {
+      return false;
+    }
+
+    _lastAttemptAt = now;
+    late final Future<bool> future;
+    future = _refreshBrowserSession(reason: reason).whenComplete(() {
+      if (identical(_activeRefresh, future)) {
+        _activeRefresh = null;
+      }
+    });
+    _activeRefresh = future;
+    return future;
+  }
+
+  void ensureInBackground({String reason = 'unknown', bool force = false}) {
+    unawaited(
+      ensureSynced(reason: reason, force: force).catchError((Object e) {
+        debugPrint('[WebViewSessionSync] 后台同步失败: $e');
+        return false;
+      }),
+    );
+  }
+
+  Future<bool> _refreshBrowserSession({required String reason}) async {
+    debugPrint('[WebViewSessionSync] 开始运行轻量会话 bootstrap: reason=$reason');
+
+    try {
+      WebViewCookiePriming.instance.invalidate();
+      await WebViewCookiePriming.instance.prime(AppConstants.baseUrl);
+    } catch (e) {
+      debugPrint('[WebViewSessionSync] WebView cookie priming 失败，继续尝试: $e');
+    }
+
+    final loadCompleter = Completer<void>();
+    HeadlessInAppWebView? webView;
+    InAppWebViewController? controller;
+
+    Future<void> syncCookies() async {
+      final c = controller;
+      if (c == null) return;
+
+      await BoundarySyncService.instance.syncFromWebView(
+        currentUrl: AppConstants.baseUrl,
+        controller: c,
+        cookieNames: null,
+        allowLowConfidenceSessionCookies: true,
+        trusted: true,
+      );
+    }
+
+    webView = HeadlessInAppWebView(
+      webViewEnvironment: io.Platform.isWindows
+          ? WindowsWebViewEnvironmentService.instance.environment
+          : null,
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        userAgent: AppConstants.webViewUserAgentOverride,
+        sharedCookiesEnabled: true,
+      ),
+      initialUserScripts: WebViewSettings.compatPolyfillScripts,
+      onReceivedServerTrustAuthRequest: (_, challenge) =>
+          WebViewSettings.handleServerTrustAuthRequest(challenge),
+      onWebViewCreated: (createdController) {
+        controller = createdController;
+        WebViewSettings.registerJsErrorReporter(createdController);
+      },
+      onLoadStop: (_, _) {
+        if (!loadCompleter.isCompleted) {
+          loadCompleter.complete();
+        }
+      },
+      onReceivedError: (_, request, error) {
+        debugPrint(
+          '[WebViewSessionSync] WebView 错误: url=${request.url}, ${error.description}',
+        );
+      },
+    );
+
+    try {
+      await webView.run();
+      final c = webView.webViewController;
+      if (c == null) {
+        debugPrint('[WebViewSessionSync] Headless WebView controller 为空');
+        return false;
+      }
+
+      if (io.Platform.isWindows) {
+        await c.loadUrl(
+          urlRequest: URLRequest(url: WebUri(_windowsBootstrapUrl)),
+        );
+      } else {
+        await c.loadData(
+          data: _bootstrapHtml,
+          baseUrl: WebUri(AppConstants.baseUrl),
+          mimeType: 'text/html',
+          encoding: 'utf-8',
+        );
+      }
+
+      try {
+        await loadCompleter.future.timeout(const Duration(seconds: 8));
+      } on TimeoutException {
+        debugPrint('[WebViewSessionSync] 轻量 bootstrap 文档加载等待超时，继续尝试');
+      }
+
+      if (io.Platform.isWindows) {
+        await _writeBootstrapHtml(c);
+      }
+
+      final bootstrapped = await runOnController(c, reason: reason);
+      if (!bootstrapped) {
+        await syncCookies();
+        await logCookieSummary(reason: reason, bootstrapOk: false);
+        debugPrint('[WebViewSessionSync] 站点会话 bootstrap 未完成');
+        return false;
+      }
+
+      await syncCookies();
+      await logCookieSummary(reason: reason, bootstrapOk: true);
+      final tToken = await _jar.getTToken();
+      if (tToken != null && tToken.isNotEmpty) {
+        _lastSuccessAt = DateTime.now();
+        debugPrint('[WebViewSessionSync] 浏览器会话 cookie 已同步');
+        return true;
+      }
+
+      debugPrint('[WebViewSessionSync] 同步后未找到有效 _t');
+      return false;
+    } catch (e) {
+      debugPrint('[WebViewSessionSync] 刷新浏览器会话 cookie 失败: $e');
+      return false;
+    } finally {
+      try {
+        await webView.dispose();
+      } catch (e) {
+        debugPrint('[WebViewSessionSync] dispose WebView 失败: $e');
+      }
+    }
+  }
+
+  /// 记录当前主域 cookie 摘要，便于确认站点 bootstrap 产生的 HttpOnly
+  /// session cookie 是否已经被同步。只记录名称和诊断信息，不记录真实值。
+  Future<void> logCookieSummary({
+    required String reason,
+    bool? bootstrapOk,
+    String? endpoint,
+    int? status,
+  }) async {
+    try {
+      if (!_jar.isInitialized) {
+        await _jar.initialize();
+      }
+      final uri = Uri.parse(AppConstants.baseUrl);
+      final details = await _jar.getCookieDiagnosticsForRequest(uri);
+      final names = details
+          .map((cookie) => cookie['name']?.toString())
+          .whereType<String>()
+          .where((name) => name.isNotEmpty)
+          .toList(growable: false);
+
+      final entry = <String, dynamic>{
+        'timestamp': DateTime.now().toIso8601String(),
+        'level': 'info',
+        'type': 'cookie_trace',
+        'event': 'webview_session_bootstrap_cookie_summary',
+        'message': 'WebView session bootstrap 后的主域 cookie 摘要',
+        'reason': reason,
+        'cookieNames': names,
+        'cookieDetails': details,
+      };
+      if (bootstrapOk != null) entry['bootstrapOk'] = bootstrapOk;
+      if (endpoint != null) entry['endpoint'] = endpoint;
+      if (status != null) entry['status'] = status;
+      LogWriter.instance.write(entry);
+    } catch (e) {
+      debugPrint('[WebViewSessionSync] 记录 cookie 摘要失败: $e');
+    }
+  }
+
+  /// 在一个已经处于 linux.do origin 的 WebView 中运行会话 bootstrap。
+  ///
+  /// 供原生登录对话框复用：登录成功后不需要打开完整站点页面，直接在同一个
+  /// 同源 WebView 里跑站点 session bootstrap，再做边界同步。
+  Future<bool> runOnController(
+    InAppWebViewController controller, {
+    String reason = 'unknown',
+  }) async {
+    final handlerName =
+        'fluxdo_session_bootstrap_${DateTime.now().microsecondsSinceEpoch}';
+    final completer = Completer<Map<String, dynamic>>();
+
+    controller.addJavaScriptHandler(
+      handlerName: handlerName,
+      callback: (args) {
+        if (completer.isCompleted) return null;
+        final raw = args.isNotEmpty ? args.first?.toString() : null;
+        try {
+          final decoded = raw == null || raw.isEmpty
+              ? <String, dynamic>{}
+              : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+          completer.complete(decoded);
+        } catch (e) {
+          completer.complete({
+            'ok': false,
+            'phase': 'decode',
+            'error': e.toString(),
+          });
+        }
+        return null;
+      },
+    );
+
+    try {
+      final script = _bootstrapScript(handlerName);
+      await controller.evaluateJavascript(source: script);
+      final result = await completer.future.timeout(_bootstrapTimeout);
+      final ok = result['ok'] == true;
+      final endpoint = result['endpoint']?.toString();
+      final status = (result['status'] as num?)?.toInt();
+      debugPrint(
+        '[WebViewSessionSync] bootstrap result: ok=$ok '
+        'reason=$reason phase=${result['phase']} '
+        'plugin=${result['plugin']} endpoint=$endpoint status=$status '
+        'error=${result['error']}',
+      );
+      LogWriter.instance.write({
+        'timestamp': DateTime.now().toIso8601String(),
+        'level': ok ? 'info' : 'warning',
+        'type': 'cookie_trace',
+        'event': 'webview_session_bootstrap_result',
+        'message': 'WebView session bootstrap 执行结果',
+        'reason': reason,
+        'ok': ok,
+        'phase': result['phase']?.toString(),
+        'plugin': result['plugin']?.toString(),
+        'endpoint': endpoint,
+        'status': status,
+        'error': result['error']?.toString(),
+      });
+      return ok;
+    } on TimeoutException {
+      debugPrint('[WebViewSessionSync] bootstrap 超时: reason=$reason');
+      return false;
+    } catch (e) {
+      debugPrint('[WebViewSessionSync] bootstrap 执行失败: reason=$reason $e');
+      return false;
+    } finally {
+      try {
+        controller.removeJavaScriptHandler(handlerName: handlerName);
+      } catch (_) {
+        // 旧平台实现可能没有 remove 能力；handler 名唯一，残留也不会串线。
+      }
+    }
+  }
+
+  Future<void> _writeBootstrapHtml(InAppWebViewController controller) async {
+    final html = jsonEncode(_bootstrapHtml);
+    await controller.evaluateJavascript(
+      source:
+          '''
+document.open();
+document.write($html);
+document.close();
+''',
+    );
+  }
+
+  String get _windowsBootstrapUrl => '${AppConstants.baseUrl}/robots.txt';
+
+  String get _bootstrapHtml =>
+      '<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
+      '<body></body></html>';
+
+  String _bootstrapScript(String handlerName) {
+    final handler = jsonEncode(handlerName);
+    final baseUrl = jsonEncode(AppConstants.baseUrl);
+    return '''
+(async function() {
+  const handlerName = $handler;
+  const appBaseUrl = $baseUrl;
+  function done(payload) {
+    try {
+      window.flutter_inappwebview.callHandler(handlerName, JSON.stringify(payload || {}));
+    } catch (e) {}
+  }
+
+  async function readCsrfToken() {
+    try {
+      const response = await fetch('/session/csrf', {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+      if (!response.ok) return null;
+      const json = await response.json();
+      return json && json.csrf ? String(json.csrf) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function postForm(url, data) {
+    const params = new URLSearchParams();
+    Object.keys(data || {}).forEach(function(key) {
+      params.append(key, data[key] == null ? '' : String(data[key]));
+    });
+    const headers = {
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'X-Requested-With': 'XMLHttpRequest'
+    };
+    const csrf = await readCsrfToken();
+    if (csrf) headers['X-CSRF-Token'] = csrf;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      headers,
+      body: params.toString()
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error('POST ' + url + ' -> ' + response.status + ': ' + text.slice(0, 160));
+    }
+    return {
+      url,
+      status: response.status,
+      ok: response.ok,
+      bodyLength: text.length
+    };
+  }
+
+  function normalizeAssetUrl(raw) {
+    if (!raw) return null;
+    const cleaned = raw.replace(/&amp;/g, '&');
+    try {
+      return new URL(cleaned, appBaseUrl + '/').toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function discoverPluginUrls() {
+    const urls = new Set();
+    const response = await fetch('/?__fluxdo_session_bootstrap=' + Date.now(), {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { 'Accept': 'text/html,*/*' }
+    });
+    const html = await response.text();
+    if (!response.ok) {
+      throw new Error('home fetch -> ' + response.status + ': ' + html.slice(0, 120));
+    }
+
+    const assetPattern = /(https?:\\/\\/[^"'\\s<>]+\\/assets\\/[^"'\\s<>]*plugins\\/[^"'\\s<>]+?\\.js(?:\\?[^"'\\s<>]*)?|\\/assets\\/[^"'\\s<>]*plugins\\/[^"'\\s<>]+?\\.js(?:\\?[^"'\\s<>]*)?)/g;
+    let match;
+    while ((match = assetPattern.exec(html)) !== null) {
+      const url = normalizeAssetUrl(match[1]);
+      if (url) urls.add(url);
+    }
+    return Array.from(urls);
+  }
+
+  async function findFingerprintPlugin() {
+    const candidates = await discoverPluginUrls();
+    for (const url of candidates) {
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          credentials: 'omit',
+          cache: 'force-cache'
+        });
+        if (!response.ok) continue;
+        const source = await response.text();
+        if (
+          source.indexOf('initializers/fingerprint') >= 0 &&
+          source.indexOf('visitor_id') >= 0 &&
+          source.indexOf('Fingerprint') >= 0
+        ) {
+          return { url, source };
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function extractFingerprintRunner(source) {
+    const endpointMatch = source.match(/_\\("([^"]+)",\\{type:"POST",data:\\{visitor_id:/);
+    if (!endpointMatch) {
+      throw new Error('fingerprint endpoint not found');
+    }
+    const fpMatch = source.match(/[A-Za-z_\$][\\w\$]*=(function\\(n\\)\\{function e[\\s\\S]*?Object\\.defineProperty\\(n,"__esModule",\\{value:!0\\}\\),n\\})\\(\\{\\}\\)/);
+    if (!fpMatch) {
+      throw new Error('fingerprint engine not found');
+    }
+    return {
+      endpoint: endpointMatch[1],
+      engineFactory: fpMatch[1]
+    };
+  }
+
+  async function runFingerprintSource(plugin) {
+    const runner = extractFingerprintRunner(plugin.source);
+    const fingerprint = (0, eval)('(' + runner.engineFactory + ')({})');
+    if (!fingerprint || typeof fingerprint.load !== 'function') {
+      throw new Error('fingerprint engine invalid');
+    }
+    const agent = await fingerprint.load();
+    const result = await agent.get();
+    const data = {};
+    Object.keys(result.components || {}).forEach(function(key) {
+      data[key] = result.components[key] && result.components[key].value;
+    });
+    const post = await postForm(runner.endpoint, {
+      visitor_id: result.visitorId,
+      version: result.version,
+      data: JSON.stringify(data)
+    });
+    post.endpoint = runner.endpoint;
+    post.plugin = plugin.url;
+    return post;
+  }
+
+  try {
+    if (location.origin !== appBaseUrl) {
+      return done({ ok: false, phase: 'origin', error: 'unexpected origin: ' + location.origin });
+    }
+    const plugin = await findFingerprintPlugin();
+    if (!plugin) {
+      return done({ ok: false, phase: 'discover', error: 'fingerprint plugin not found' });
+    }
+    const post = await runFingerprintSource(plugin);
+    return done({
+      ok: post && post.ok === true,
+      phase: 'post',
+      plugin: post && post.plugin,
+      status: post && post.status,
+      endpoint: post && post.endpoint
+    });
+  } catch (e) {
+    return done({ ok: false, phase: 'exception', error: String(e && e.message ? e.message : e) });
+  }
+})();
+''';
+  }
+}

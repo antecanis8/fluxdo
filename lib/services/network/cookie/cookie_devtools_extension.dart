@@ -167,6 +167,7 @@ class CookieDevtoolsExtension {
       return _okResult({
         'criticalNames': SessionCookieSentinel.criticalCookieNames.toList(),
         'sessionNames': CookieJarService.sessionCookieNames.toList(),
+        'authNames': CookieJarService.authCookieNames.toList(),
         'isPrimed': WebViewCookiePriming.instance.isPrimed,
         'jarInitialized': CookieJarService().isInitialized,
         'rawWriterSupported': RawCookieWriter.instance.isSupported,
