@@ -472,7 +472,7 @@ class PreloadedDataService {
     _extractTurnstileSitekeyFromHtml(html);
     _extractBaseUriFromHtml(html);
     _extractCdnUrlFromHtml(html);
-    _extractPluginCandidatesFromHtml(html);
+    _extractPluginCandidatesInBackground(html);
     // 提取 data-preloaded 属性内容
     final match = RegExp(r'data-preloaded="([^"]*)"').firstMatch(html);
     if (match == null) {
@@ -562,41 +562,32 @@ class PreloadedDataService {
     }
   }
 
-  /// 从首页 HTML 扫出 plugin js url 列表（供 WebView session bootstrap 复用,
-  /// 跳过 bootstrap 脚本里重复的首页 fetch）。
+  /// 从首页 HTML 扫出 plugin js url 列表。
   ///
-  /// 正则与 WebView 端 `discoverPluginUrls` 保持等价：匹配形如
-  /// `https://cdn.../assets/.../plugins/xxx.js(?...)` 或
-  /// `/assets/.../plugins/xxx.js(?...)` 的资源 url。
-  void _extractPluginCandidatesFromHtml(String html) {
-    final pattern = RegExp(
-      r'''(https?://[^"'\s<>]+/assets/[^"'\s<>]*plugins/[^"'\s<>]+?\.js(?:\?[^"'\s<>]*)?|/assets/[^"'\s<>]*plugins/[^"'\s<>]+?\.js(?:\?[^"'\s<>]*)?)''',
-    );
-    final seen = <String>{};
-    final ordered = <String>[];
-    for (final match in pattern.allMatches(html)) {
-      final raw = match.group(1);
-      if (raw == null || raw.isEmpty) continue;
-      final normalized = _normalizePluginUrl(raw);
-      if (normalized == null) continue;
-      if (seen.add(normalized)) {
-        ordered.add(normalized);
+  /// 这是 WebView session bootstrap 的优化数据，不是启动页展示的必要数据。
+  /// 全 HTML 正则扫描可能较重，因此放到后台 isolate 异步填充，避免阻塞
+  /// PreheatLogo 动画和预加载关键路径。未及时产出时 bootstrap 会降级为
+  /// 自己 fetch 首页扫描，功能不受影响。
+  void _extractPluginCandidatesInBackground(String html) {
+    final baseUrl = AppConstants.baseUrl;
+    unawaited(() async {
+      try {
+        // 让当前解析流程先归还事件循环，避免在同一帧继续抢 UI isolate。
+        await Future<void>.delayed(Duration.zero);
+        final ordered = await compute<List<String>, List<String>>(
+          _extractPluginCandidatesInIsolate,
+          [html, baseUrl],
+        );
+        _pluginCandidates = ordered.isEmpty ? null : List.unmodifiable(ordered);
+        if (ordered.isNotEmpty) {
+          debugPrint(
+            '[PreloadedData] pluginCandidates: ${ordered.length} items',
+          );
+        }
+      } catch (e) {
+        debugPrint('[PreloadedData] pluginCandidates 提取失败: $e');
       }
-    }
-    _pluginCandidates = ordered.isEmpty ? null : List.unmodifiable(ordered);
-    if (ordered.isNotEmpty) {
-      debugPrint('[PreloadedData] pluginCandidates: ${ordered.length} items');
-    }
-  }
-
-  String? _normalizePluginUrl(String raw) {
-    final cleaned = raw.replaceAll('&amp;', '&');
-    try {
-      final base = Uri.parse(AppConstants.baseUrl);
-      return base.resolve(cleaned).toString();
-    } catch (_) {
-      return null;
-    }
+    }());
   }
 
   bool _hasReusableBootstrapData() {
@@ -835,6 +826,36 @@ Map<String, dynamic>? _decodePreloadedJsonInIsolate(String rawJson) {
   }
 
   return result;
+}
+
+List<String> _extractPluginCandidatesInIsolate(List<String> input) {
+  final html = input[0];
+  final baseUrl = input[1];
+  final pattern = RegExp(
+    r'''(https?://[^"'\s<>]+/assets/[^"'\s<>]*plugins/[^"'\s<>]+?\.js(?:\?[^"'\s<>]*)?|/assets/[^"'\s<>]*plugins/[^"'\s<>]+?\.js(?:\?[^"'\s<>]*)?)''',
+  );
+  final seen = <String>{};
+  final ordered = <String>[];
+  for (final match in pattern.allMatches(html)) {
+    final raw = match.group(1);
+    if (raw == null || raw.isEmpty) continue;
+    final normalized = _normalizePluginCandidateUrl(raw, baseUrl);
+    if (normalized == null) continue;
+    if (seen.add(normalized)) {
+      ordered.add(normalized);
+    }
+  }
+  return ordered;
+}
+
+String? _normalizePluginCandidateUrl(String raw, String baseUrl) {
+  final cleaned = raw.replaceAll('&amp;', '&');
+  try {
+    final base = Uri.parse(baseUrl);
+    return base.resolve(cleaned).toString();
+  } catch (_) {
+    return null;
+  }
 }
 
 TopicListResponse _parseTopicListInIsolate(Map<String, dynamic> json) =>
