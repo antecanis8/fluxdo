@@ -1,101 +1,78 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io' as io;
 
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants.dart';
 import 'cf_challenge_logger.dart';
+import 'network/cookie/boundary_sync_service.dart';
 import 'network/cookie/cookie_jar_service.dart';
-import 'network/discourse_dio.dart';
+import 'network/cookie/webview_cookie_priming.dart';
 import 'webview_settings.dart';
 import 'windows_webview_environment_service.dart';
 
-/// cf_clearance 自动续期服务
+/// cf_clearance 自动续期服务。
 ///
-/// 保持一个持久的 HeadlessInAppWebView，加载 Turnstile widget 并设置
-/// refresh-expired: "auto"，让 Turnstile 自身驱动刷新循环（默认 290 秒）。
-///
-/// 通过覆写 window.fetch 拦截 api.js 对 rc 端点的内部调用，
-/// 由 Dart 侧 Dio 发起真实请求，再将真实响应回传给 api.js。
+/// 只维护一个轻量 Headless WebView，加载同源 Turnstile widget，让
+/// Cloudflare 的 challenge-platform / rc 请求继续由 WebView 浏览器栈自己发送。
+/// Dart 侧不代理、不重放 CF 请求，只在边界时机把 WebView 中新的
+/// `.linux.do` cf_clearance 同步回 CookieJar。
 class CfClearanceRefreshService {
   static final CfClearanceRefreshService _instance =
       CfClearanceRefreshService._internal();
   factory CfClearanceRefreshService() => _instance;
   CfClearanceRefreshService._internal();
 
-  static const String prefKeyEnabled = 'pref_cf_clearance_refresh_enabled';
-
-  SharedPreferences? _prefs;
-
-  bool get isEnabled => _prefs?.getBool(prefKeyEnabled) ?? false;
-
-  void initialize(SharedPreferences prefs) {
-    _prefs = prefs;
-  }
-
-  Future<void> setEnabled(bool enabled) async {
-    final previous = isEnabled;
-    await _prefs?.setBool(prefKeyEnabled, enabled);
-    if (previous == enabled) return;
-
-    if (enabled) {
-      CfChallengeLogger.log('[CfRefresh] 已启用自动续期');
-      start();
-    } else {
-      CfChallengeLogger.log('[CfRefresh] 已禁用自动续期');
-      stop();
-    }
-  }
-
-  /// 缓存的 sitekey（来自预热 HTML 或 403 响应体）
-  String? _sitekey;
-
-  /// 持久 HeadlessWebView（保持 Turnstile widget 存活）
-  HeadlessInAppWebView? _headlessWebView;
-
-  /// 当前 HeadlessWebView 对应的 controller
-  InAppWebViewController? _webViewController;
-
-  /// WebView 是否已启动
-  bool _isRunning = false;
-
-  /// WebView 是否正处于销毁阶段
-  bool _isDisposing = false;
-
-  /// 当前是否期望服务保持运行
-  bool _shouldBeRunning = false;
-
-  /// 是否正在调用 rc 端点
-  bool _isCallingRc = false;
-
-  /// 连续失败次数
-  int _consecutiveFailures = 0;
-
-  /// 代际计数器：每次 start/stop 递增，用于使异步回调中的过期操作失效
-  int _generation = 0;
-
-  /// 最大连续失败次数
+  static const String _cookieName = 'cf_clearance';
   static const int _maxConsecutiveFailures = 3;
-
-  /// Turnstile 首次解题超时
-  static const Duration _initialTimeout = Duration(seconds: 30);
-
-  /// 销毁前等待原生回调栈退出的缓冲时间
+  static const Duration _initialTimeout = Duration(seconds: 45);
+  static const Duration _cookiePollInterval = Duration(seconds: 45);
+  static const Duration _healthCheckInterval = Duration(minutes: 1);
+  static const Duration _staleRefreshWindow = Duration(minutes: 8);
+  static const Duration _restartDelay = Duration(seconds: 5);
   static const Duration _disposeGracePeriod = Duration(milliseconds: 150);
 
+  /// 缓存的 sitekey（来自预热 HTML、登录 HTML 或 CF 403 响应体）。
+  String? _sitekey;
+
+  /// 持久 HeadlessWebView（保持 Turnstile widget 存活）。
+  HeadlessInAppWebView? _headlessWebView;
+
+  /// 当前 HeadlessWebView 对应的 controller。
+  InAppWebViewController? _webViewController;
+
+  bool _isRunning = false;
+  bool _isDisposing = false;
+  bool _shouldBeRunning = false;
+  bool _isForeground = true;
+  bool _pausedByLifecycle = false;
+  bool _isSyncingCookies = false;
+
+  int _generation = 0;
+  int _consecutiveFailures = 0;
+
+  String? _lastCookieValue;
+  DateTime? _lastCookieExpiresAt;
+  DateTime? _runningStartedAt;
+  DateTime? _lastSignalAt;
+  DateTime? _lastCookieAdvanceAt;
+
   Timer? _initialTimer;
+  Timer? _cookiePollTimer;
+  Timer? _healthTimer;
+  Timer? _delayedRestartTimer;
   Timer? _delayedStopTimer;
 
-  // ---------------------------------------------------------------------------
-  // sitekey 管理
-  // ---------------------------------------------------------------------------
-
-  /// 获取当前缓存的 sitekey
+  /// 获取当前缓存的 sitekey。
   String? get sitekey => _sitekey;
 
-  /// 更新 sitekey（由 PreloadedDataService 或 CfChallengeInterceptor 调用）
+  void setForeground(bool foreground) {
+    _isForeground = foreground;
+  }
+
+  /// 更新 sitekey（由 PreloadedDataService 或 CfChallengeInterceptor 调用）。
   void updateSitekey(String sitekey) {
     if (sitekey.isEmpty) return;
     final changed = _sitekey != sitekey;
@@ -104,10 +81,13 @@ class CfClearanceRefreshService {
       CfChallengeLogger.log(
         '[CfRefresh] sitekey 已更新: ${sitekey.substring(0, 8)}...',
       );
+      if (_shouldBeRunning && !_isRunning && !_isDisposing) {
+        _startWebView();
+      }
     }
   }
 
-  /// 从 HTML 中提取并更新 sitekey
+  /// 从 HTML 中提取并更新 sitekey。
   void extractAndUpdateSitekey(String html) {
     final match = RegExp(r'data-sitekey="([0-9a-zA-Zx_-]+)"').firstMatch(html);
     if (match == null) return;
@@ -121,17 +101,23 @@ class CfClearanceRefreshService {
   // 生命周期
   // ---------------------------------------------------------------------------
 
-  /// 启动服务：创建持久 WebView，加载 Turnstile
+  /// 启动服务：创建持久轻量 WebView，加载 Turnstile。
+  ///
+  /// 这个方法不阻塞启动链路；没有 sitekey 或没有现存 cf_clearance 时不会
+  /// 主动拉起验证页，交给正常请求的 CF challenge 流程处理。
   void start() {
-    if (!isEnabled) {
-      CfChallengeLogger.log('[CfRefresh] 自动续期开关关闭，跳过启动');
+    _shouldBeRunning = true;
+    _pausedByLifecycle = false;
+    if (_isRunning && !_isDisposing) return;
+    if (!_isForeground) {
+      CfChallengeLogger.log('[CfRefresh] 当前处于后台，延后启动');
       return;
     }
-    if (_isRunning && !_isDisposing) return;
-    _shouldBeRunning = true;
-    _consecutiveFailures = 0;
+
     _generation++;
-    _delayedStopTimer?.cancel();
+    _consecutiveFailures = 0;
+    _cancelDelayedTimers();
+
     if (_isDisposing) {
       CfChallengeLogger.log('[CfRefresh] start 已排队，等待当前 WebView 完成销毁');
       return;
@@ -139,27 +125,40 @@ class CfClearanceRefreshService {
     _startWebView();
   }
 
-  /// 暂停：销毁 WebView（应用进入后台，WebView 可能被系统挂起）
+  /// 暂停：应用进后台时释放 WebView，避免后台 WebView 被系统挂起后状态不明。
   void pause() {
-    if (!_isRunning && !_isDisposing) return;
+    _isForeground = false;
+    final shouldResume = _shouldBeRunning || _isRunning || _isDisposing;
+    if (!shouldResume) return;
+    _pausedByLifecycle = true;
     _shouldBeRunning = false;
     _generation++;
+    _cancelDelayedTimers();
+    if (_isDisposing) {
+      CfChallengeLogger.log('[CfRefresh] 暂停，等待当前 WebView 销毁');
+      return;
+    }
+    if (!_isRunning && _headlessWebView == null && _webViewController == null) {
+      CfChallengeLogger.log('[CfRefresh] 暂停，取消待启动 WebView');
+      return;
+    }
     CfChallengeLogger.log('[CfRefresh] 暂停，释放 WebView');
     unawaited(_disposeWebView(reason: 'pause'));
   }
 
-  /// 恢复：重新创建 WebView（应用回到前台）
+  /// 恢复：应用回前台后重新创建轻量 WebView。
   void resume() {
-    if (!isEnabled) {
-      CfChallengeLogger.log('[CfRefresh] 自动续期开关关闭，跳过恢复');
-      return;
-    }
-    if (_isRunning && !_isDisposing) return;
+    _isForeground = true;
+    if (!_pausedByLifecycle && !_shouldBeRunning) return;
+    _pausedByLifecycle = false;
     _shouldBeRunning = true;
-    CfChallengeLogger.log('[CfRefresh] 恢复');
-    _consecutiveFailures = 0;
+    if (_isRunning && !_isDisposing) return;
+
     _generation++;
-    _delayedStopTimer?.cancel();
+    _consecutiveFailures = 0;
+    _cancelDelayedTimers();
+
+    CfChallengeLogger.log('[CfRefresh] 恢复');
     if (_isDisposing) {
       CfChallengeLogger.log('[CfRefresh] resume 已排队，等待当前 WebView 完成销毁');
       return;
@@ -167,13 +166,25 @@ class CfClearanceRefreshService {
     _startWebView();
   }
 
-  /// 停止服务
+  /// 停止服务。
   void stop() {
+    _pausedByLifecycle = false;
+    if (!_shouldBeRunning && !_isRunning && !_isDisposing) {
+      return;
+    }
+
+    if (_isDisposing && !_shouldBeRunning) {
+      return;
+    }
+
     _shouldBeRunning = false;
     _generation++;
-    _delayedStopTimer?.cancel();
-    unawaited(_disposeWebView(reason: 'stop'));
     _consecutiveFailures = 0;
+    _cancelDelayedTimers();
+
+    if (_isRunning || _headlessWebView != null || _webViewController != null) {
+      unawaited(_disposeWebView(reason: 'stop'));
+    }
     CfChallengeLogger.log('[CfRefresh] 服务已停止');
   }
 
@@ -181,45 +192,58 @@ class CfClearanceRefreshService {
   // WebView 管理
   // ---------------------------------------------------------------------------
 
-  /// 启动持久 HeadlessWebView
   void _startWebView() {
-    if (_isRunning || _isDisposing) return;
-    if (_sitekey == null) {
+    if (_isRunning || _isDisposing || !_shouldBeRunning || !_isForeground) {
+      return;
+    }
+
+    final sitekey = _sitekey;
+    if (sitekey == null || sitekey.isEmpty) {
       CfChallengeLogger.log('[CfRefresh] 无 sitekey，跳过启动');
       return;
     }
 
-    // 需要有 cf_clearance 才启动（说明已通过 CF 验证）
     final gen = _generation;
-    CookieJarService().getCfClearanceCookie().then((cookie) {
-      // stop() 或新一轮 start() 已被调用，放弃本次启动
+    unawaited(() async {
+      final baseline = await _readClearanceSnapshot();
       if (gen != _generation ||
           _isDisposing ||
           _isRunning ||
-          !_shouldBeRunning) {
+          !_shouldBeRunning ||
+          !_isForeground) {
         return;
       }
-      if (cookie == null) {
+      if (baseline == null) {
         CfChallengeLogger.log('[CfRefresh] 无 cf_clearance，跳过启动');
         return;
       }
-      unawaited(_createAndRunWebView(gen));
-    });
+
+      _rememberCookieSnapshot(baseline, markAdvanced: false);
+      _runningStartedAt = DateTime.now();
+      _lastCookieAdvanceAt = _runningStartedAt;
+      await _createAndRunWebView(sitekey, gen);
+    }());
   }
 
-  /// 创建并运行 HeadlessWebView
-  Future<void> _createAndRunWebView(int gen) async {
-    if (_isRunning || _isDisposing || _sitekey == null || !_shouldBeRunning) {
-      return;
-    }
+  Future<void> _createAndRunWebView(String sitekey, int gen) async {
+    if (!_canStartGeneration(gen)) return;
 
-    final html = _buildTurnstileHtml(_sitekey!);
+    try {
+      WebViewCookiePriming.instance.invalidate();
+      await WebViewCookiePriming.instance.prime(AppConstants.baseUrl);
+    } catch (e) {
+      debugPrint('[CfRefresh] WebView cookie priming 失败，继续启动: $e');
+      CfChallengeLogger.log('[CfRefresh] WebView cookie priming 失败，继续启动: $e');
+    }
+    if (!_canStartGeneration(gen)) return;
+
+    final originLoadCompleter = Completer<void>();
+    final html = _buildTurnstileHtml(sitekey);
     final webView = HeadlessInAppWebView(
-      webViewEnvironment: WindowsWebViewEnvironmentService.instance.environment,
-      initialSettings: InAppWebViewSettings(
-        javaScriptEnabled: true,
-        userAgent: AppConstants.webViewUserAgentOverride,
-      ),
+      webViewEnvironment: io.Platform.isWindows
+          ? WindowsWebViewEnvironmentService.instance.environment
+          : null,
+      initialSettings: WebViewSettings.headless,
       initialUserScripts: WebViewSettings.compatPolyfillScripts,
       onReceivedServerTrustAuthRequest: (_, challenge) =>
           WebViewSettings.handleServerTrustAuthRequest(challenge),
@@ -232,93 +256,69 @@ class CfClearanceRefreshService {
         }
         _webViewController = controller;
         WebViewSettings.registerJsErrorReporter(controller);
-
-        // 核心通道：拦截 api.js 内部的 fetch(/rc/) 调用
-        controller.addJavaScriptHandler(
-          handlerName: 'onRcIntercepted',
-          callback: (args) {
-            if (!_canHandleGeneration(gen)) {
-              CfChallengeLogger.log(
-                '[CfRefresh] 忽略 onRcIntercepted 回调: gen=$gen current=$_generation disposing=$_isDisposing',
-              );
-              return null;
-            }
-
-            _cancelInitialTimer();
-
-            if (args.isNotEmpty && args[0] is Map) {
-              final data = args[0] as Map;
-              final id = data['id'] as String? ?? '';
-              final chlId = data['chlId'] as String?;
-              final secondaryToken = data['secondaryToken'] as String?;
-              final sitekey = data['sitekey'] as String?;
-              _onRcIntercepted(id, chlId, secondaryToken, sitekey, gen);
-            }
-            return null;
-          },
-        );
-
-        // 错误通道
-        controller.addJavaScriptHandler(
-          handlerName: 'onTurnstileError',
-          callback: (args) {
-            if (!_canHandleGeneration(gen)) {
-              CfChallengeLogger.log(
-                '[CfRefresh] 忽略 onTurnstileError 回调: gen=$gen current=$_generation disposing=$_isDisposing',
-              );
-              return null;
-            }
-
-            final error = args.isNotEmpty ? args[0] : 'unknown';
-            CfChallengeLogger.log('[CfRefresh] Turnstile 错误: $error');
-            _consecutiveFailures++;
-            if (_consecutiveFailures >= _maxConsecutiveFailures) {
-              CfChallengeLogger.log(
-                '[CfRefresh] 连续失败 $_consecutiveFailures 次，延迟停止服务',
-              );
-              _scheduleStop('turnstile_error:$error', gen: gen);
-            }
-            return null;
-          },
-        );
+        _registerJavaScriptHandlers(controller, gen);
       },
-      onReceivedError: (controller, request, error) {
-        debugPrint('[CfRefresh] WebView 错误: ${error.description}');
+      onLoadStop: (_, url) {
+        if (!originLoadCompleter.isCompleted) {
+          originLoadCompleter.complete();
+        }
+        if (_canHandleGeneration(gen)) {
+          _lastSignalAt = DateTime.now();
+          unawaited(_syncAndCheckCookies('load_stop', gen));
+          debugPrint('[CfRefresh] WebView load stop: $url');
+        }
+      },
+      onReceivedError: (_, request, error) {
+        debugPrint(
+          '[CfRefresh] WebView 错误: url=${request.url}, ${error.description}',
+        );
       },
     );
+
     _headlessWebView = webView;
+    _isRunning = true;
 
     try {
-      _isRunning = true;
       CfChallengeLogger.log('[CfRefresh] 启动 Turnstile WebView');
 
       await webView.run();
       if (!_canHandleGeneration(gen)) return;
 
-      await webView.webViewController?.loadData(
-        data: html,
-        baseUrl: WebUri(AppConstants.baseUrl),
-        mimeType: 'text/html',
-        encoding: 'utf-8',
-      );
-      if (!_canHandleGeneration(gen)) return;
+      final controller = webView.webViewController;
+      if (controller == null) {
+        throw StateError('Headless WebView controller is null');
+      }
 
-      // 首次解题超时检测
-      _initialTimer = Timer(_initialTimeout, () {
+      if (io.Platform.isWindows) {
+        await controller.loadUrl(
+          urlRequest: URLRequest(url: WebUri(_windowsBootstrapUrl)),
+        );
+        try {
+          await originLoadCompleter.future.timeout(const Duration(seconds: 8));
+        } on TimeoutException {
+          debugPrint('[CfRefresh] Windows origin bootstrap load timeout');
+        }
         if (!_canHandleGeneration(gen)) return;
-        CfChallengeLogger.log('[CfRefresh] 首次解题超时');
-        _consecutiveFailures++;
-        _checkAndStopIfNeeded();
-      });
-    } catch (e) {
+        await _writeTurnstileHtml(controller, html);
+      } else {
+        await controller.loadData(
+          data: html,
+          baseUrl: WebUri(AppConstants.baseUrl),
+          mimeType: 'text/html',
+          encoding: 'utf-8',
+        );
+      }
+
+      if (!_canHandleGeneration(gen)) return;
+      _startTimers(gen);
+    } catch (e, stackTrace) {
       debugPrint('[CfRefresh] WebView 启动失败: $e');
+      debugPrintStack(label: '[CfRefresh] start stack', stackTrace: stackTrace);
       CfChallengeLogger.log('[CfRefresh] WebView 启动失败: $e');
-      _cancelInitialTimer();
-      _isRunning = false;
       if (identical(_headlessWebView, webView)) {
+        _isRunning = false;
         _headlessWebView = null;
         _webViewController = null;
-        _shouldBeRunning = false;
         try {
           await webView.dispose();
         } catch (disposeError) {
@@ -327,10 +327,87 @@ class CfClearanceRefreshService {
           );
         }
       }
+      if (gen == _generation && _shouldBeRunning) {
+        _recordFailure('start_failed', gen: gen, restart: true);
+      }
     }
   }
 
-  /// 释放 WebView
+  void _registerJavaScriptHandlers(InAppWebViewController controller, int gen) {
+    controller.addJavaScriptHandler(
+      handlerName: 'onCfRefreshSignal',
+      callback: (args) {
+        if (!_canHandleGeneration(gen)) return null;
+        _handleRefreshSignal(args, gen);
+        return null;
+      },
+    );
+
+    controller.addJavaScriptHandler(
+      handlerName: 'onTurnstileToken',
+      callback: (args) {
+        if (!_canHandleGeneration(gen)) return null;
+        _lastSignalAt = DateTime.now();
+        _cancelInitialTimer();
+        final tokenLength = _readInt(args, 'length');
+        CfChallengeLogger.log(
+          '[CfRefresh] Turnstile token 回调 len=$tokenLength',
+        );
+        unawaited(_syncAndCheckCookies('turnstile_token', gen));
+        return null;
+      },
+    );
+
+    controller.addJavaScriptHandler(
+      handlerName: 'onTurnstileExpired',
+      callback: (_) {
+        if (!_canHandleGeneration(gen)) return null;
+        _lastSignalAt = DateTime.now();
+        CfChallengeLogger.log('[CfRefresh] Turnstile token 已过期，等待自动刷新');
+        unawaited(_syncAndCheckCookies('turnstile_expired', gen));
+        return null;
+      },
+    );
+
+    controller.addJavaScriptHandler(
+      handlerName: 'onTurnstileError',
+      callback: (args) {
+        if (!_canHandleGeneration(gen)) return null;
+        _lastSignalAt = DateTime.now();
+        final error = args.isNotEmpty ? args.first?.toString() : 'unknown';
+        CfChallengeLogger.log('[CfRefresh] Turnstile 错误: $error');
+        unawaited(_syncAndCheckCookies('turnstile_error', gen));
+        _recordFailure('turnstile_error:$error', gen: gen, restart: true);
+        return null;
+      },
+    );
+  }
+
+  void _handleRefreshSignal(List<dynamic> args, int gen) {
+    final data = _readMap(args);
+    final type = data['type']?.toString() ?? 'unknown';
+    _lastSignalAt = DateTime.now();
+
+    if (type == 'api_ready' || type.endsWith(':start')) {
+      _cancelInitialTimer();
+    }
+  }
+
+  Future<void> _writeTurnstileHtml(
+    InAppWebViewController controller,
+    String html,
+  ) async {
+    final encodedHtml = jsonEncode(html);
+    await controller.evaluateJavascript(
+      source:
+          '''
+document.open();
+document.write($encodedHtml);
+document.close();
+''',
+    );
+  }
+
   Future<void> _disposeWebView({required String reason}) async {
     if (_isDisposing) {
       CfChallengeLogger.log('[CfRefresh] 忽略重复 dispose 请求: $reason');
@@ -339,10 +416,8 @@ class CfClearanceRefreshService {
 
     _isDisposing = true;
     _isRunning = false;
-    _isCallingRc = false;
-    _cancelInitialTimer();
-    _delayedStopTimer?.cancel();
-    _delayedStopTimer = null;
+    _isSyncingCookies = false;
+    _cancelRuntimeTimers();
 
     final wv = _headlessWebView;
     final controller = _webViewController;
@@ -355,8 +430,9 @@ class CfClearanceRefreshService {
 
     try {
       if (controller != null) {
-        CfChallengeLogger.log('[CfRefresh] 移除 JS handlers');
-        controller.removeJavaScriptHandler(handlerName: 'onRcIntercepted');
+        controller.removeJavaScriptHandler(handlerName: 'onCfRefreshSignal');
+        controller.removeJavaScriptHandler(handlerName: 'onTurnstileToken');
+        controller.removeJavaScriptHandler(handlerName: 'onTurnstileExpired');
         controller.removeJavaScriptHandler(handlerName: 'onTurnstileError');
       }
     } catch (e) {
@@ -379,165 +455,212 @@ class CfClearanceRefreshService {
       '[CfRefresh] disposing end: reason=$reason, shouldRun=$_shouldBeRunning',
     );
 
-    if (_shouldBeRunning && !_isRunning) {
+    if (_shouldBeRunning && !_isRunning && _isForeground) {
       CfChallengeLogger.log('[CfRefresh] dispose 后按期望状态重启 WebView');
       _startWebView();
     }
   }
 
   // ---------------------------------------------------------------------------
-  // rc 端点处理
+  // Cookie 同步与健康检查
   // ---------------------------------------------------------------------------
 
-  /// fetch 拦截回调：api.js 尝试调用 rc 端点，被我们截获
-  void _onRcIntercepted(
-    String id,
-    String? chlId,
-    String? secondaryToken,
-    String? sitekey,
-    int gen,
-  ) {
-    if (!_canHandleGeneration(gen)) {
-      return;
-    }
-    if (_isCallingRc) {
-      // 已有 rc 调用进行中，直接返回 503 让 api.js 知道繁忙
-      _resolveRcPromise(id, 503, '{}');
-      return;
-    }
+  void _startTimers(int gen) {
+    _cancelRuntimeTimers();
 
-    if (chlId == null || chlId.isEmpty) {
-      CfChallengeLogger.log('[CfRefresh] 拦截到 rc 调用但缺少 chlId');
-      _resolveRcPromise(id, 400, '{}');
-      return;
-    }
-
-    // sitekey 优先用拦截到的，fallback 用缓存的
-    final effectiveSitekey = (sitekey != null && sitekey.isNotEmpty)
-        ? sitekey
-        : _sitekey;
-    if (effectiveSitekey == null) {
-      CfChallengeLogger.log('[CfRefresh] 无 sitekey，跳过 rc 调用');
-      _resolveRcPromise(id, 400, '{}');
-      return;
-    }
-
-    CfChallengeLogger.log('[CfRefresh] 拦截 rc 调用，chlId: $chlId');
-
-    _callRcEndpoint(id, chlId, secondaryToken, effectiveSitekey, gen);
-  }
-
-  /// 调用 CF rc 端点并将真实响应回传给 JS
-  Future<void> _callRcEndpoint(
-    String id,
-    String chlId,
-    String? secondaryToken,
-    String sitekey,
-    int gen,
-  ) async {
-    if (!_canHandleGeneration(gen)) return;
-    _isCallingRc = true;
-    try {
-      final dio = DiscourseDio.create(
-        enableCfChallenge: false,
-        enableRetry: false,
-      );
-
-      final response = await dio.post(
-        '/cdn-cgi/challenge-platform/h/g/rc/$chlId',
-        data: {
-          if (secondaryToken != null && secondaryToken.isNotEmpty)
-            'secondaryToken': secondaryToken,
-          'sitekey': sitekey,
-        },
-        options: Options(
-          headers: {
-            'Origin': AppConstants.baseUrl,
-            'Referer': '${AppConstants.baseUrl}/',
-          },
-          extra: {
-            'skipCfChallenge': true,
-            'skipCsrf': true,
-            'isSilent': true,
-            'isCfChallengePlatform': true,
-            'skipWebViewAdapter': true,
-          },
-          validateStatus: (status) => status != null,
-        ),
-      );
-
-      // 请求期间服务已被停止，丢弃结果
+    _initialTimer = Timer(_initialTimeout, () {
       if (!_canHandleGeneration(gen)) return;
+      CfChallengeLogger.log('[CfRefresh] Turnstile 初始运行超时，准备重建');
+      unawaited(_syncAndCheckCookies('initial_timeout', gen));
+      _recordFailure('initial_timeout', gen: gen, restart: true);
+    });
 
-      final statusCode = response.statusCode ?? 500;
-      final body = response.data?.toString() ?? '{}';
-      CfChallengeLogger.log('[CfRefresh] rc 端点响应: $statusCode');
-
-      // 将真实响应回传给 JS 的 pending Promise
-      _resolveRcPromise(id, statusCode, body);
-
-      // 等待 cookie 持久化完成后再检查
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (!_canHandleGeneration(gen)) return;
-
-      // 验证 cf_clearance 是否已更新
-      final cfClearance = await CookieJarService().getCfClearance();
-      if (cfClearance != null && cfClearance.isNotEmpty) {
-        _consecutiveFailures = 0;
-        CfChallengeLogger.log('[CfRefresh] cf_clearance 续期成功');
-      } else {
-        _consecutiveFailures++;
-        CfChallengeLogger.log(
-          '[CfRefresh] cf_clearance 未更新 (连续失败 $_consecutiveFailures 次)',
-        );
-        _checkAndStopIfNeeded();
+    _cookiePollTimer = Timer.periodic(_cookiePollInterval, (_) {
+      if (!_canHandleGeneration(gen)) {
+        _cookiePollTimer?.cancel();
+        return;
       }
-    } catch (e) {
+      unawaited(_syncAndCheckCookies('poll', gen));
+    });
+
+    _healthTimer = Timer.periodic(_healthCheckInterval, (_) async {
+      if (!_canHandleGeneration(gen)) {
+        _healthTimer?.cancel();
+        return;
+      }
+      await _syncAndCheckCookies('health', gen);
       if (!_canHandleGeneration(gen)) return;
-      CfChallengeLogger.log('[CfRefresh] rc 端点调用异常: $e');
-      _resolveRcPromise(id, 500, '{}');
-      _consecutiveFailures++;
-      _checkAndStopIfNeeded();
+
+      final anchor = _lastCookieAdvanceAt ?? _runningStartedAt;
+      if (anchor == null) return;
+      final idle = DateTime.now().difference(anchor);
+      if (idle >= _staleRefreshWindow) {
+        final lastSignalAgo = _lastSignalAt == null
+            ? 'never'
+            : '${DateTime.now().difference(_lastSignalAt!).inSeconds}s';
+        CfChallengeLogger.log(
+          '[CfRefresh] 长时间未观察到 cf_clearance 更新，重建 WebView '
+          '(idle=${idle.inSeconds}s, lastSignalAgo=$lastSignalAgo)',
+        );
+        _scheduleRestart('stale_refresh', gen: gen);
+      }
+    });
+  }
+
+  Future<bool> _syncAndCheckCookies(String reason, int gen) async {
+    if (!_canHandleGeneration(gen) || _isSyncingCookies) return false;
+    final controller = _webViewController;
+    if (controller == null) return false;
+
+    _isSyncingCookies = true;
+    try {
+      await BoundarySyncService.instance.syncFromWebView(
+        currentUrl: AppConstants.baseUrl,
+        controller: controller,
+        cookieNames: const {_cookieName},
+        trusted: true,
+      );
+
+      if (!_canHandleGeneration(gen)) return false;
+      final snapshot = await _readClearanceSnapshot();
+      if (snapshot == null) {
+        if (reason != 'poll' && reason != 'health') {
+          CfChallengeLogger.log('[CfRefresh] 同步后未找到 cf_clearance: $reason');
+        }
+        return false;
+      }
+
+      final advanced = _isCookieAdvanced(snapshot);
+      _rememberCookieSnapshot(snapshot, markAdvanced: advanced);
+
+      if (advanced) {
+        _cancelInitialTimer();
+        _consecutiveFailures = 0;
+        CfChallengeLogger.log(
+          '[CfRefresh] cf_clearance 已更新: reason=$reason '
+          'expires=${snapshot.expiresAt?.toIso8601String() ?? '-'}',
+        );
+      } else if (reason != 'poll' && reason != 'health') {
+        CfChallengeLogger.log(
+          '[CfRefresh] cf_clearance 未变化: reason=$reason '
+          'expires=${snapshot.expiresAt?.toIso8601String() ?? '-'}',
+        );
+      }
+      return advanced;
+    } catch (e) {
+      if (reason != 'poll' && reason != 'health') {
+        CfChallengeLogger.log('[CfRefresh] cookie 同步失败: reason=$reason $e');
+      }
+      return false;
     } finally {
-      _isCallingRc = false;
+      _isSyncingCookies = false;
     }
   }
 
-  /// 通过 evaluateJavascript 将真实响应回传给 JS 的 pending Promise
-  void _resolveRcPromise(String id, int statusCode, String body) {
-    if (_isDisposing || !_isRunning) {
-      CfChallengeLogger.log(
-        '[CfRefresh] 跳过 resolveRcPromise: id=$id running=$_isRunning disposing=$_isDisposing',
-      );
-      return;
+  Future<_ClearanceSnapshot?> _readClearanceSnapshot() async {
+    final cookie = await CookieJarService().getCanonicalCookie(_cookieName);
+    if (cookie == null || cookie.value.isEmpty) return null;
+    if (!CookieJarService.matchesAppHost(cookie.domain)) return null;
+    final expiresAt = cookie.expiresAt?.toLocal();
+    if (expiresAt != null && !expiresAt.isAfter(DateTime.now())) {
+      return null;
     }
-
-    // 转义 body 中的特殊字符，防止 JS 注入
-    final escapedBody = body
-        .replaceAll('\\', '\\\\')
-        .replaceAll("'", "\\'")
-        .replaceAll('\n', '\\n')
-        .replaceAll('\r', '\\r');
-    _webViewController?.evaluateJavascript(
-      source: "window._resolveRc('$id', $statusCode, '$escapedBody')",
+    return _ClearanceSnapshot(
+      value: cookie.value,
+      expiresAt: expiresAt,
+      domain: cookie.domain,
     );
   }
 
-  /// 检查是否应该停止服务
-  void _checkAndStopIfNeeded() {
-    if (_consecutiveFailures >= _maxConsecutiveFailures) {
-      CfChallengeLogger.log('[CfRefresh] 连续失败过多，停止服务');
-      _scheduleStop('too_many_failures', gen: _generation);
+  bool _isCookieAdvanced(_ClearanceSnapshot snapshot) {
+    final previousValue = _lastCookieValue;
+    final previousExpires = _lastCookieExpiresAt;
+
+    if (previousValue != null && snapshot.value != previousValue) {
+      return true;
+    }
+    if (previousExpires != null &&
+        snapshot.expiresAt != null &&
+        snapshot.expiresAt!.isAfter(
+          previousExpires.add(const Duration(seconds: 30)),
+        )) {
+      return true;
+    }
+    if (previousExpires == null && snapshot.expiresAt != null) {
+      return true;
+    }
+    return false;
+  }
+
+  void _rememberCookieSnapshot(
+    _ClearanceSnapshot snapshot, {
+    required bool markAdvanced,
+  }) {
+    _lastCookieValue = snapshot.value;
+    _lastCookieExpiresAt = snapshot.expiresAt;
+    if (markAdvanced) {
+      _lastCookieAdvanceAt = DateTime.now();
     }
   }
 
-  bool _canHandleGeneration(int gen) {
-    return gen == _generation && _isRunning && !_isDisposing;
+  void _recordFailure(
+    String reason, {
+    required int gen,
+    required bool restart,
+  }) {
+    if (gen != _generation || !_shouldBeRunning) return;
+
+    _consecutiveFailures++;
+    if (_consecutiveFailures >= _maxConsecutiveFailures) {
+      CfChallengeLogger.log(
+        '[CfRefresh] 连续失败 $_consecutiveFailures 次，停止自动续期: $reason',
+      );
+      _scheduleStop(reason, gen: gen);
+      return;
+    }
+
+    if (restart) {
+      _scheduleRestart(reason, gen: gen);
+    }
   }
 
-  void _cancelInitialTimer() {
-    _initialTimer?.cancel();
-    _initialTimer = null;
+  // ---------------------------------------------------------------------------
+  // 调度工具
+  // ---------------------------------------------------------------------------
+
+  bool _canStartGeneration(int gen) {
+    return gen == _generation &&
+        !_isRunning &&
+        !_isDisposing &&
+        _shouldBeRunning &&
+        _isForeground;
+  }
+
+  bool _canHandleGeneration(int gen) {
+    return gen == _generation && _isRunning && !_isDisposing && _isForeground;
+  }
+
+  void _scheduleRestart(String reason, {required int gen}) {
+    _delayedRestartTimer?.cancel();
+    _delayedRestartTimer = Timer(_restartDelay, () {
+      if (gen != _generation ||
+          !_shouldBeRunning ||
+          _isDisposing ||
+          !_isForeground) {
+        CfChallengeLogger.log(
+          '[CfRefresh] 取消延迟 restart: reason=$reason, gen=$gen '
+          'current=$_generation running=$_isRunning disposing=$_isDisposing',
+        );
+        return;
+      }
+      CfChallengeLogger.log('[CfRefresh] 执行延迟 restart: $reason');
+      if (_isRunning) {
+        _generation++;
+        unawaited(_disposeWebView(reason: 'restart:$reason'));
+      } else {
+        _startWebView();
+      }
+    });
   }
 
   void _scheduleStop(String reason, {required int gen}) {
@@ -545,7 +668,8 @@ class CfClearanceRefreshService {
     _delayedStopTimer = Timer(_disposeGracePeriod, () {
       if (gen != _generation || _isDisposing || !_isRunning) {
         CfChallengeLogger.log(
-          '[CfRefresh] 取消延迟 stop: reason=$reason, gen=$gen current=$_generation running=$_isRunning disposing=$_isDisposing',
+          '[CfRefresh] 取消延迟 stop: reason=$reason, gen=$gen '
+          'current=$_generation running=$_isRunning disposing=$_isDisposing',
         );
         return;
       }
@@ -554,84 +678,146 @@ class CfClearanceRefreshService {
     });
   }
 
+  void _cancelInitialTimer() {
+    _initialTimer?.cancel();
+    _initialTimer = null;
+  }
+
+  void _cancelRuntimeTimers() {
+    _initialTimer?.cancel();
+    _initialTimer = null;
+    _cookiePollTimer?.cancel();
+    _cookiePollTimer = null;
+    _healthTimer?.cancel();
+    _healthTimer = null;
+  }
+
+  void _cancelDelayedTimers() {
+    _delayedRestartTimer?.cancel();
+    _delayedRestartTimer = null;
+    _delayedStopTimer?.cancel();
+    _delayedStopTimer = null;
+  }
+
+  Map<String, dynamic> _readMap(List<dynamic> args) {
+    if (args.isEmpty || args.first is! Map) return const {};
+    return Map<String, dynamic>.from(args.first as Map);
+  }
+
+  int _readInt(List<dynamic> args, String key) {
+    final value = _readMap(args)[key];
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String get _windowsBootstrapUrl => '${AppConstants.baseUrl}/robots.txt';
+
   // ---------------------------------------------------------------------------
   // HTML 模板
   // ---------------------------------------------------------------------------
 
-  /// 构建 Turnstile HTML
-  ///
-  /// 在 api.js 加载前覆写 window.fetch，拦截 /rc/ 请求。
-  /// JS 端创建 pending Promise，Dart 调完 Dio 后通过
-  /// evaluateJavascript 调用 window._resolveRc() 回传真实响应。
   String _buildTurnstileHtml(String sitekey) {
+    final encodedSitekey = jsonEncode(sitekey);
     return '''
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 320px;
+      min-height: 100px;
+      background: transparent;
+      overflow: hidden;
+    }
+    #turnstile-container {
+      width: 300px;
+      min-height: 65px;
+    }
+  </style>
   <script>
-    // 在 api.js 加载前覆写 fetch，拦截 rc 端点调用
-    var _originalFetch = window.fetch;
-    var _pendingRc = {};
-    var _rcId = 0;
+    (function() {
+      if (window.__fluxdoCfRefreshInstalled) return;
+      window.__fluxdoCfRefreshInstalled = true;
 
-    window.fetch = function(url, options) {
-      if (typeof url === 'string' &&
-          url.indexOf('/cdn-cgi/challenge-platform/') !== -1 &&
-          url.indexOf('/rc/') !== -1) {
-        var id = 'rc_' + (++_rcId);
-        var parts = url.split('/rc/');
-        var chlId = parts.length > 1 ? parts[1].split('?')[0] : '';
-        var body = {};
-        try { body = JSON.parse(options.body); } catch(e) {}
-
-        // 转发给 Dart，由 Dart 发起真实请求
-        window.flutter_inappwebview.callHandler('onRcIntercepted', {
-          id: id,
-          chlId: chlId,
-          secondaryToken: body.secondaryToken || '',
-          sitekey: body.sitekey || ''
-        });
-
-        // 返回 Promise，等 Dart 回传真实响应后 resolve
-        return new Promise(function(resolve) {
-          _pendingRc[id] = resolve;
-        });
+      function call(name, payload) {
+        try {
+          window.flutter_inappwebview.callHandler(name, payload || {});
+        } catch (_) {}
       }
-      return _originalFetch.apply(this, arguments);
-    };
 
-    // Dart 调用此函数回传真实响应
-    window._resolveRc = function(id, status, body) {
-      if (_pendingRc[id]) {
-        _pendingRc[id](new Response(body || '{}', { status: status }));
-        delete _pendingRc[id];
+      function signal(type, detail) {
+        detail = detail || {};
+        detail.type = type;
+        detail.href = location.href;
+        detail.ts = Date.now();
+        call('onCfRefreshSignal', detail);
       }
-    };
+
+      window.__fluxdoTurnstileReady = function() {
+        signal('api_ready');
+        try {
+          if (!window.turnstile || typeof window.turnstile.render !== 'function') {
+            call('onTurnstileError', 'turnstile api missing');
+            return;
+          }
+          window.__fluxdoTurnstileWidgetId = window.turnstile.render(
+            '#turnstile-container',
+            {
+              sitekey: $encodedSitekey,
+              appearance: 'interaction-only',
+              'refresh-expired': 'auto',
+              'refresh-timeout': 'auto',
+              callback: function(token) {
+                signal('token', { length: token ? token.length : 0 });
+                call('onTurnstileToken', { length: token ? token.length : 0 });
+              },
+              'expired-callback': function() {
+                signal('expired');
+                call('onTurnstileExpired', {});
+              },
+              'timeout-callback': function() {
+                signal('timeout');
+                call('onTurnstileError', 'timeout');
+              },
+              'error-callback': function(error) {
+                signal('error', { error: String(error || 'unknown') });
+                call('onTurnstileError', String(error || 'unknown'));
+              },
+              'unsupported-callback': function() {
+                signal('unsupported');
+                call('onTurnstileError', 'unsupported');
+              }
+            }
+          );
+          signal('rendered');
+        } catch (e) {
+          call('onTurnstileError', String(e && e.message ? e.message : e));
+        }
+      };
+    })();
   </script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad" async defer></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=__fluxdoTurnstileReady" async defer></script>
 </head>
 <body>
   <div id="turnstile-container"></div>
-  <script>
-    function onTurnstileLoad() {
-      try {
-        turnstile.render('#turnstile-container', {
-          sitekey: '$sitekey',
-          appearance: 'interaction-only',
-          'refresh-expired': 'auto',
-          'error-callback': function(error) {
-            window.flutter_inappwebview.callHandler('onTurnstileError', error || 'render_error');
-          }
-        });
-      } catch(e) {
-        window.flutter_inappwebview.callHandler('onTurnstileError', e.toString());
-      }
-    }
-  </script>
 </body>
 </html>
 ''';
   }
+}
+
+class _ClearanceSnapshot {
+  const _ClearanceSnapshot({
+    required this.value,
+    required this.expiresAt,
+    required this.domain,
+  });
+
+  final String value;
+  final DateTime? expiresAt;
+  final String? domain;
 }

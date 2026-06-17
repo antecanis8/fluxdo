@@ -187,7 +187,11 @@ class SessionCookieSentinel {
         }
         // 用 toSetCookieHeader 保留 hostOnly/Domain/SameSite, 避免与 WV
         // 网络层写入的同名 cookie 共存 (详见 _writeWinnerToWebView 注释)
-        await _writer.setRawCookie(url, cookie.toSetCookieHeader());
+        await _writer.setRawCookie(
+          url,
+          cookie.toSetCookieHeader(),
+          writeSharedStorage: cookie.name != 'cf_clearance',
+        );
       }
       primingDuration = stopwatch.elapsed - primingStart;
 
@@ -636,7 +640,11 @@ class SessionCookieSentinel {
       final cookieToWrite = winnerValue == canonical.value
           ? canonical
           : canonical.copyWith(value: winnerValue);
-      await _writer.setRawCookie(url, cookieToWrite.toSetCookieHeader());
+      await _writer.setRawCookie(
+        url,
+        cookieToWrite.toSetCookieHeader(),
+        writeSharedStorage: cookieToWrite.name != 'cf_clearance',
+      );
       return;
     }
 
@@ -677,7 +685,11 @@ class SessionCookieSentinel {
     if (sameSite != null && sameSite.isNotEmpty) {
       attrs.add('SameSite=$sameSite');
     }
-    await _writer.setRawCookie(url, attrs.join('; '));
+    await _writer.setRawCookie(
+      url,
+      attrs.join('; '),
+      writeSharedStorage: winner.name != 'cf_clearance',
+    );
   }
 
   /// 反向同步 winner 到 jar（路径 B 场景）。

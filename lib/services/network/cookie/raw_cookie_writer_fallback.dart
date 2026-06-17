@@ -55,7 +55,11 @@ class RawCookieWriterFallback {
   /// 用 [SetCookieParser] (项目内已有, 解析完整字段含 SameSite/Partitioned)
   /// 代替 `io.Cookie.fromSetCookieValue` (后者不解析 SameSite — 会丢字段
   /// 导致与 WV 网络层写入的同名 cookie 在隐藏属性上不一致, 引起共存)。
-  Future<bool> setRawCookie(String url, String rawSetCookie) async {
+  Future<bool> setRawCookie(
+    String url,
+    String rawSetCookie, {
+    bool writeSharedStorage = true,
+  }) async {
     try {
       final uri = Uri.parse(url);
       final canonical = SetCookieParser.parse(rawSetCookie, uri: uri);

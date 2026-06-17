@@ -11,6 +11,7 @@ import '../../services/cf_challenge_service.dart';
 import '../../services/discourse/discourse_service.dart';
 import '../../services/network/cookie/boundary_sync_service.dart';
 import '../../services/network/cookie/cookie_jar_service.dart';
+import '../../services/preloaded_data_service.dart';
 import '../../services/toast_service.dart';
 import '../../services/webview_session_cookie_refresh_service.dart';
 import '../../services/webview_settings.dart';
@@ -593,6 +594,7 @@ document.close();
         await WebViewSessionCookieRefreshService.instance.runOnController(
           controller,
           reason: 'native_login_success',
+          pluginCandidates: PreloadedDataService().pluginCandidatesSync,
         );
       }
       await BoundarySyncService.instance.syncFromWebView(

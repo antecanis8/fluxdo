@@ -10,6 +10,7 @@ import 'log/log_writer.dart';
 import 'network/cookie/boundary_sync_service.dart';
 import 'network/cookie/cookie_jar_service.dart';
 import 'network/cookie/webview_cookie_priming.dart';
+import 'preloaded_data_service.dart';
 import 'webview_settings.dart';
 import 'windows_webview_environment_service.dart';
 
@@ -180,7 +181,11 @@ class WebViewSessionCookieRefreshService {
         await _writeBootstrapHtml(c);
       }
 
-      final bootstrapped = await runOnController(c, reason: reason);
+      final bootstrapped = await runOnController(
+        c,
+        reason: reason,
+        pluginCandidates: PreloadedDataService().pluginCandidatesSync,
+      );
       if (!bootstrapped) {
         await syncCookies();
         await logCookieSummary(reason: reason, bootstrapOk: false);
@@ -254,9 +259,15 @@ class WebViewSessionCookieRefreshService {
   ///
   /// 供原生登录对话框复用：登录成功后不需要打开完整站点页面，直接在同一个
   /// 同源 WebView 里跑站点 session bootstrap，再做边界同步。
+  ///
+  /// [pluginCandidates] 是首页 HTML 中预先扫出的 plugin js url 列表（来自
+  /// `PreloadedDataService.pluginCandidatesSync`）。传入后 bootstrap 脚本会
+  /// 跳过自己的首页 fetch，直接用这个列表查找 fingerprint 插件。未传或为空
+  /// 时降级到脚本内的 discover 流程，行为与历史版本一致。
   Future<bool> runOnController(
     InAppWebViewController controller, {
     String reason = 'unknown',
+    List<String>? pluginCandidates,
   }) async {
     final handlerName =
         'fluxdo_session_bootstrap_${DateTime.now().microsecondsSinceEpoch}';
@@ -284,6 +295,7 @@ class WebViewSessionCookieRefreshService {
     );
 
     try {
+      await _injectPluginCandidates(controller, pluginCandidates);
       final script = _bootstrapScript(handlerName);
       await controller.evaluateJavascript(source: script);
       final result = await completer.future.timeout(_bootstrapTimeout);
@@ -335,6 +347,26 @@ document.open();
 document.write($html);
 document.close();
 ''',
+    );
+  }
+
+  /// 把 caller 提供的 plugin url 列表注入到 WebView 全局，bootstrap 脚本会
+  /// 优先用它跳过自己的首页 fetch。
+  Future<void> _injectPluginCandidates(
+    InAppWebViewController controller,
+    List<String>? pluginCandidates,
+  ) async {
+    if (pluginCandidates == null || pluginCandidates.isEmpty) {
+      // 显式清掉旧值，避免上一次注入残留误导本次（HeadlessWebView 之间不共享
+      // window，但 runOnController 也用于复用控制器的登录对话框场景）。
+      await controller.evaluateJavascript(
+        source: 'window.__fluxdoPluginCandidates = null;',
+      );
+      return;
+    }
+    final encoded = jsonEncode(pluginCandidates);
+    await controller.evaluateJavascript(
+      source: 'window.__fluxdoPluginCandidates = $encoded;',
     );
   }
 
@@ -419,6 +451,15 @@ document.close();
   }
 
   async function discoverPluginUrls() {
+    // 优先用 dart 侧 PreloadedDataService 注入的列表 (来源同一份首页 HTML),
+    // 避免 bootstrap 再 fetch 一次首页。无注入时降级到自己拉首页扫描。
+    const injected = Array.isArray(window.__fluxdoPluginCandidates)
+      ? window.__fluxdoPluginCandidates.filter(function(u) { return typeof u === 'string' && u.length > 0; })
+      : null;
+    if (injected && injected.length) {
+      return injected.slice();
+    }
+
     const urls = new Set();
     const response = await fetch('/?__fluxdo_session_bootstrap=' + Date.now(), {
       method: 'GET',

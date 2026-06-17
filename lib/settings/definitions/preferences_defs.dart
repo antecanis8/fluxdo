@@ -66,15 +66,6 @@ List<SettingsGroup> buildPreferencesGroups(BuildContext context) {
           },
           onTap: (context, ref) => showTopicFilterKeywordsDialog(context, ref),
         ),
-        SwitchModel(
-          id: 'cfClearanceRefresh',
-          title: l10n.preferences_cfClearanceRefresh,
-          subtitle: l10n.preferences_cfClearanceRefreshDesc,
-          icon: Icons.security_update_warning_rounded,
-          getValue: (ref) => ref.watch(preferencesProvider).cfClearanceRefresh,
-          onChanged: (ref, v) =>
-              ref.read(preferencesProvider.notifier).setCfClearanceRefresh(v),
-        ),
         PlatformConditionalModel(
           inner: SwitchModel(
             id: 'portraitLock',

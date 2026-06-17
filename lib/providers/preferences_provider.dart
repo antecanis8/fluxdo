@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../navigation/nav_action_bus.dart';
 import '../services/network/request_scheduler_config.dart';
 import '../services/cf_challenge_service.dart';
-import '../services/cf_clearance_refresh_service.dart';
 import 'theme_provider.dart';
 
 /// 嵌套视图连接线样式
@@ -128,9 +127,6 @@ class AppPreferences {
   /// 退出时清除图片缓存
   final bool clearCacheOnExit;
 
-  /// cf_clearance 自动续期
-  final bool cfClearanceRefresh;
-
   /// 拦截到 CF 盾时自动弹出验证页面
   final bool autoCfChallenge;
 
@@ -227,7 +223,6 @@ class AppPreferences {
     required this.portraitLock,
     required this.hideBarOnScroll,
     required this.clearCacheOnExit,
-    required this.cfClearanceRefresh,
     required this.autoCfChallenge,
     required this.expandRelatedLinks,
     required this.aiSwipeEntry,
@@ -272,7 +267,6 @@ class AppPreferences {
     bool? portraitLock,
     bool? hideBarOnScroll,
     bool? clearCacheOnExit,
-    bool? cfClearanceRefresh,
     bool? autoCfChallenge,
     bool? expandRelatedLinks,
     bool? aiSwipeEntry,
@@ -318,7 +312,6 @@ class AppPreferences {
       portraitLock: portraitLock ?? this.portraitLock,
       hideBarOnScroll: hideBarOnScroll ?? this.hideBarOnScroll,
       clearCacheOnExit: clearCacheOnExit ?? this.clearCacheOnExit,
-      cfClearanceRefresh: cfClearanceRefresh ?? this.cfClearanceRefresh,
       autoCfChallenge: autoCfChallenge ?? this.autoCfChallenge,
       expandRelatedLinks: expandRelatedLinks ?? this.expandRelatedLinks,
       aiSwipeEntry: aiSwipeEntry ?? this.aiSwipeEntry,
@@ -354,7 +347,8 @@ class AppPreferences {
       progressGestureSwipeUp:
           progressGestureSwipeUp ?? this.progressGestureSwipeUp,
       progressGestureLongPressEnabled:
-          progressGestureLongPressEnabled ?? this.progressGestureLongPressEnabled,
+          progressGestureLongPressEnabled ??
+          this.progressGestureLongPressEnabled,
       progressGestureMenuActions:
           progressGestureMenuActions ?? this.progressGestureMenuActions,
       editorToolbarTools: editorToolbarTools ?? this.editorToolbarTools,
@@ -380,14 +374,13 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
   static const String _portraitLockKey = 'pref_portrait_lock';
   static const String _hideBarOnScrollKey = 'pref_hide_bar_on_scroll';
   static const String _clearCacheOnExitKey = 'pref_clear_cache_on_exit';
-  static const String _cfClearanceRefreshKey =
-      CfClearanceRefreshService.prefKeyEnabled;
   static const String _autoCfChallengeKey = 'pref_auto_cf_challenge';
   static const String _expandRelatedLinksKey = 'pref_expand_related_links';
   static const String _aiSwipeEntryKey = 'pref_ai_swipe_entry';
   static const String _aiPostReviewEnabledKey = 'pref_ai_post_review_enabled';
   static const String _aiPostReviewModelPrefKey = 'pref_ai_post_review_model';
-  static const String _hcaptchaCreateEndpointKey = 'pref_hcaptcha_create_endpoint';
+  static const String _hcaptchaCreateEndpointKey =
+      'pref_hcaptcha_create_endpoint';
   static const String _dialogBlurKey = 'pref_dialog_blur';
   static const String _showSignaturesKey = 'pref_show_signatures';
   static const String _boostDanmakuKey = 'pref_boost_danmaku';
@@ -444,7 +437,6 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
           portraitLock: _prefs.getBool(_portraitLockKey) ?? false,
           hideBarOnScroll: _prefs.getBool(_hideBarOnScrollKey) ?? true,
           clearCacheOnExit: _prefs.getBool(_clearCacheOnExitKey) ?? false,
-          cfClearanceRefresh: _prefs.getBool(_cfClearanceRefreshKey) ?? false,
           autoCfChallenge: _prefs.getBool(_autoCfChallengeKey) ?? true,
           expandRelatedLinks: _prefs.getBool(_expandRelatedLinksKey) ?? false,
           aiSwipeEntry: _prefs.getBool(_aiSwipeEntryKey) ?? false,
@@ -607,11 +599,6 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
   Future<void> setClearCacheOnExit(bool enabled) async {
     state = state.copyWith(clearCacheOnExit: enabled);
     await _prefs.setBool(_clearCacheOnExitKey, enabled);
-  }
-
-  Future<void> setCfClearanceRefresh(bool enabled) async {
-    state = state.copyWith(cfClearanceRefresh: enabled);
-    await CfClearanceRefreshService().setEnabled(enabled);
   }
 
   Future<void> setAutoCfChallenge(bool enabled) async {

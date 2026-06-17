@@ -1,5 +1,6 @@
 import 'dart:io' as io;
 
+import 'package:enhanced_cookie_jar/enhanced_cookie_jar.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -23,6 +24,7 @@ class RawCookieWriter {
   static final instance = RawCookieWriter._();
 
   static const _channel = MethodChannel('com.fluxdo/raw_cookie');
+  static const _sharedStorageIsolatedCookieNames = {'cf_clearance'};
 
   /// 当前平台是否有 native method channel 实现。
   bool get _hasNativeChannel =>
@@ -45,15 +47,34 @@ class RawCookieWriter {
   /// 各平台实现：
   /// - Android: `CookieManager.setCookie(url, rawSetCookie)`
   /// - iOS/macOS: `HTTPCookie.cookies(withResponseHeaderFields:for:)` → `WKHTTPCookieStore.setCookie`
+  ///   默认同时写入 `HTTPCookieStorage.shared`；[writeSharedStorage] 可关闭
+  ///   shared storage 写入，用于避免 Apple 平台对特定 HttpOnly domain cookie
+  ///   产生双份 WK 变体。
+  ///   `cf_clearance` 会强制 WK-only 写入，防止 shared storage 与 WK store
+  ///   双写后在 WebKit 中出现两个同名变体。
   /// - Linux: `soup_cookie_jar_set_cookie(jar, uri, rawSetCookie)`
-  Future<bool> setRawCookie(String url, String rawSetCookie) async {
+  Future<bool> setRawCookie(
+    String url,
+    String rawSetCookie, {
+    bool writeSharedStorage = true,
+  }) async {
+    final effectiveWriteSharedStorage = _effectiveSharedStorageWrite(
+      url,
+      rawSetCookie,
+      requested: writeSharedStorage,
+    );
     if (_hasDartFallback) {
-      return RawCookieWriterFallback.instance.setRawCookie(url, rawSetCookie);
+      return RawCookieWriterFallback.instance.setRawCookie(
+        url,
+        rawSetCookie,
+        writeSharedStorage: effectiveWriteSharedStorage,
+      );
     }
     try {
       final result = await _channel.invokeMethod<bool>('setRawCookie', {
         'url': url,
         'rawSetCookie': rawSetCookie,
+        'writeSharedStorage': effectiveWriteSharedStorage,
       });
       return result ?? false;
     } on PlatformException catch (e) {
@@ -62,6 +83,29 @@ class RawCookieWriter {
     } on MissingPluginException {
       debugPrint('[RawCookieWriter] Platform channel not available');
       return false;
+    }
+  }
+
+  bool _effectiveSharedStorageWrite(
+    String url,
+    String rawSetCookie, {
+    required bool requested,
+  }) {
+    if (!requested) return false;
+
+    final name = _cookieNameFromRawHeader(url, rawSetCookie);
+    if (name == null) return requested;
+    return !_sharedStorageIsolatedCookieNames.contains(name.toLowerCase());
+  }
+
+  String? _cookieNameFromRawHeader(String url, String rawSetCookie) {
+    try {
+      return SetCookieParser.parse(rawSetCookie, uri: Uri.parse(url)).name;
+    } catch (_) {
+      final separator = rawSetCookie.indexOf('=');
+      if (separator <= 0) return null;
+      final name = rawSetCookie.substring(0, separator).trim();
+      return name.isEmpty ? null : name;
     }
   }
 

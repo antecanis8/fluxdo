@@ -8,7 +8,7 @@ import '../l10n/s.dart';
 import '../pages/about_page.dart';
 import '../pages/network_settings_page/network_settings_page.dart';
 import '../providers/app_icon_provider.dart';
-import '../services/preloaded_data_service.dart';
+import '../services/browser_trust_coordinator.dart';
 import '../services/discourse/discourse_service.dart';
 import '../services/emoji_handler.dart';
 import '../services/log/log_writer.dart';
@@ -44,7 +44,9 @@ class _PreheatGateState extends State<PreheatGate> {
   void _readIconStyle() {
     SharedPreferences.getInstance().then((prefs) {
       final saved = prefs.getString('pref_app_icon');
-      final style = saved == 'modern' ? AppIconStyle.modern : AppIconStyle.classic;
+      final style = saved == 'modern'
+          ? AppIconStyle.modern
+          : AppIconStyle.classic;
       if (mounted && style != _iconStyle) {
         setState(() => _iconStyle = style);
       }
@@ -58,7 +60,9 @@ class _PreheatGateState extends State<PreheatGate> {
         await _showReloginDialog();
       }
 
-      await PreloadedDataService().ensureLoaded();
+      await BrowserTrustCoordinator.instance.ensurePreloaded(
+        reason: 'preheat_gate',
+      );
 
       DiscourseService().getEnabledReactions();
       EmojiHandler().init();
@@ -112,7 +116,7 @@ class _PreheatGateState extends State<PreheatGate> {
       builder: (context, snapshot) {
         // 无论加载状态如何，都设置 context
         // 避免 CF 验证等待 context 而 context 等待加载完成导致的死锁
-        PreloadedDataService().setNavigatorContext(context);
+        BrowserTrustCoordinator.instance.setNavigatorContext(context);
 
         Widget currentWidget;
         if (snapshot.connectionState != ConnectionState.done) {
@@ -241,7 +245,9 @@ class _PreheatLoadingState extends State<_PreheatLoading> {
                           onPressed: widget.onSkip,
                           child: Text(
                             context.l10n.common_skip,
-                            style: TextStyle(color: colorScheme.onSurfaceVariant),
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ),
@@ -251,7 +257,9 @@ class _PreheatLoadingState extends State<_PreheatLoading> {
                   Text(
                     _version != null ? 'v$_version' : '',
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                      color: colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.6,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -272,15 +280,15 @@ class _PreheatFailed extends StatelessWidget {
   const _PreheatFailed({super.key, required this.onRetry, this.error});
 
   void _openAbout(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AboutPage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const AboutPage()));
   }
 
   void _openNetworkSettings(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const NetworkSettingsPage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const NetworkSettingsPage()));
   }
 
   Future<void> _confirmLogout(BuildContext context) async {

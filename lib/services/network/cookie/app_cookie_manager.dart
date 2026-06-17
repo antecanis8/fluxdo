@@ -570,6 +570,7 @@ class AppCookieManager extends Interceptor {
         await RawCookieWriter.instance.setRawCookie(
           resolvedUri.toString(),
           filteredSetCookieHeaders[i],
+          writeSharedStorage: cookie.name != 'cf_clearance',
         );
       }
     }

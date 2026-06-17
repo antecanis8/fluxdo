@@ -179,10 +179,16 @@ import workmanager_apple
             result(false)
             return
           }
-          // 同时写入 HTTPCookieStorage.shared，配合 sharedCookiesEnabled
-          // 确保 WKWebView 在创建时即可从 shared storage 读取到 cookie
+          let writeSharedStorage = args["writeSharedStorage"] as? Bool ?? true
           CookieStoreObserverHandler.shared.beginInternalWrite()
-          HTTPCookieStorage.shared.setCookie(cookie)
+          let storage = HTTPCookieStorage.shared
+          if writeSharedStorage {
+            // 同时写入 HTTPCookieStorage.shared，配合 sharedCookiesEnabled
+            // 确保 WKWebView 在创建时即可从 shared storage 读取到 cookie。
+            storage.setCookie(cookie)
+          } else {
+            AppDelegate.deleteSharedCookieIOS(storage: storage, url: url, cookie: cookie)
+          }
           let store = WKWebsiteDataStore.default().httpCookieStore
           store.setCookie(cookie) {
             CookieStoreObserverHandler.shared.endInternalWrite()
@@ -444,6 +450,21 @@ import workmanager_apple
       return normalizedCookieDomain == normalizedCandidate
     } else {
       return normalizedCookieDomain == host
+    }
+  }
+
+  private static func deleteSharedCookieIOS(
+    storage: HTTPCookieStorage,
+    url: URL,
+    cookie: HTTPCookie
+  ) {
+    let host = (url.host ?? "").lowercased()
+    guard let sharedCookies = storage.cookies else { return }
+    for sharedCookie in sharedCookies where
+      sharedCookie.name == cookie.name &&
+      sharedCookie.path == cookie.path &&
+      AppDelegate.matchDomain(cookieDomain: sharedCookie.domain, candidate: cookie.domain, host: host) {
+      storage.deleteCookie(sharedCookie)
     }
   }
 

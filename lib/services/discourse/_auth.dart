@@ -893,7 +893,11 @@ mixin _AuthMixin on _DiscourseServiceBase {
 
           if (_tToken != null && _tToken!.isNotEmpty) {
             if (!_isLoggingOut) {
-              await WebViewSessionCookieRefreshService.instance.ensureSynced(
+              // bootstrap 是站点风控的指纹上报，产物 _rt 是软依赖：
+              // 服务端用 _t 已经能完成认证，首个请求漏掉 _rt 不会被拒。
+              // 后台触发，不阻塞业务请求，避免冷启动后第一次点话题被
+              // bootstrap (Mac 上 6~20s) 整段拖住。
+              WebViewSessionCookieRefreshService.instance.ensureInBackground(
                 reason: 'dio_request:${options.method}',
               );
             }

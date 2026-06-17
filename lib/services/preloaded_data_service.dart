@@ -39,6 +39,7 @@ class PreloadedDataService {
   String? _cdnUrl; // CDN 域名（从 data-discourse-setup 提取）
   String? _s3CdnUrl; // S3 CDN 域名（如 https://cdn3.linux.do）
   String? _s3BaseUrl; // S3 基础 URL（如 //linuxdo-uploads.s3.linux.do）
+  List<String>? _pluginCandidates; // 首页 HTML 中扫到的 plugin js url 列表
   bool _hasDiscourseSetup = false; // 是否提取到 data-discourse-setup 标签
   bool _loaded = false;
   bool _loading = false;
@@ -57,7 +58,11 @@ class PreloadedDataService {
   Map<String, dynamic>? get currentUserSync => _currentUser;
   Map<String, dynamic>? get siteSettingsSync => _siteSettings;
 
-List<Map<String, dynamic>>? get topicTrackingStatesSync =>
+  /// 从首页 HTML 扫出的 plugin js url 列表（供 WebView session bootstrap 复用,
+  /// 避免重复 fetch 首页）。未加载或没扫到时返回 null。
+  List<String>? get pluginCandidatesSync => _pluginCandidates;
+
+  List<Map<String, dynamic>>? get topicTrackingStatesSync =>
       _topicTrackingStates;
 
   /// 设置导航 context（用于弹出 CF 验证页面）
@@ -381,9 +386,6 @@ List<Map<String, dynamic>>? get topicTrackingStatesSync =>
     }
 
     _loaded = true;
-    if (_currentUser != null) {
-      CfClearanceRefreshService().start();
-    }
     debugPrint('[PreloadedData] 已从 HTML 快照恢复数据');
     return true;
   }
@@ -417,6 +419,7 @@ List<Map<String, dynamic>>? get topicTrackingStatesSync =>
     _s3BaseUrl = null;
     _sharedSessionKey = null;
     _longPollingBaseUrl = null;
+    _pluginCandidates = null;
   }
 
   /// 确保数据已加载
@@ -452,11 +455,8 @@ List<Map<String, dynamic>>? get topicTrackingStatesSync =>
       await _parsePreloadedDataFromHtml(html);
       debugPrint('[PreloadedData] 数据加载成功');
       _loaded = true;
-      // 预热完成，sitekey 已提取；仅在已登录时启动 cf_clearance 自动续期，
-      // 避免未登录状态下的 CF 刷新请求干扰 auth 判断
-      if (_currentUser != null) {
-        CfClearanceRefreshService().start();
-      }
+      // 预热完成后仅更新站点基础数据和 sitekey。cf_clearance 自动续期
+      // 由 BrowserTrustCoordinator 统一判断启动，避免预加载服务绕过生命周期门禁。
     } catch (e) {
       debugPrint('[PreloadedData] 加载失败: $e');
       rethrow;
@@ -472,6 +472,7 @@ List<Map<String, dynamic>>? get topicTrackingStatesSync =>
     _extractTurnstileSitekeyFromHtml(html);
     _extractBaseUriFromHtml(html);
     _extractCdnUrlFromHtml(html);
+    _extractPluginCandidatesFromHtml(html);
     // 提取 data-preloaded 属性内容
     final match = RegExp(r'data-preloaded="([^"]*)"').firstMatch(html);
     if (match == null) {
@@ -558,6 +559,43 @@ List<Map<String, dynamic>>? get topicTrackingStatesSync =>
       debugPrint(
         '[PreloadedData] s3CdnUrl: $_s3CdnUrl, s3BaseUrl: $_s3BaseUrl',
       );
+    }
+  }
+
+  /// 从首页 HTML 扫出 plugin js url 列表（供 WebView session bootstrap 复用,
+  /// 跳过 bootstrap 脚本里重复的首页 fetch）。
+  ///
+  /// 正则与 WebView 端 `discoverPluginUrls` 保持等价：匹配形如
+  /// `https://cdn.../assets/.../plugins/xxx.js(?...)` 或
+  /// `/assets/.../plugins/xxx.js(?...)` 的资源 url。
+  void _extractPluginCandidatesFromHtml(String html) {
+    final pattern = RegExp(
+      r'''(https?://[^"'\s<>]+/assets/[^"'\s<>]*plugins/[^"'\s<>]+?\.js(?:\?[^"'\s<>]*)?|/assets/[^"'\s<>]*plugins/[^"'\s<>]+?\.js(?:\?[^"'\s<>]*)?)''',
+    );
+    final seen = <String>{};
+    final ordered = <String>[];
+    for (final match in pattern.allMatches(html)) {
+      final raw = match.group(1);
+      if (raw == null || raw.isEmpty) continue;
+      final normalized = _normalizePluginUrl(raw);
+      if (normalized == null) continue;
+      if (seen.add(normalized)) {
+        ordered.add(normalized);
+      }
+    }
+    _pluginCandidates = ordered.isEmpty ? null : List.unmodifiable(ordered);
+    if (ordered.isNotEmpty) {
+      debugPrint('[PreloadedData] pluginCandidates: ${ordered.length} items');
+    }
+  }
+
+  String? _normalizePluginUrl(String raw) {
+    final cleaned = raw.replaceAll('&amp;', '&');
+    try {
+      final base = Uri.parse(AppConstants.baseUrl);
+      return base.resolve(cleaned).toString();
+    } catch (_) {
+      return null;
     }
   }
 
