@@ -105,10 +105,3 @@ class NotificationListNotifier
 final notificationListProvider = AsyncNotifierProvider.autoDispose<NotificationListNotifier, List<DiscourseNotification>>(() {
   return NotificationListNotifier();
 });
-
-/// 未读通知数量 Provider
-/// 优先使用服务端推送的计数器（复刻 Discourse 原项目逻辑）
-final unreadNotificationCountProvider = Provider<int>((ref) {
-  final countState = ref.watch(notificationCountStateProvider);
-  return countState.allUnread;
-});
