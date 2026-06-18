@@ -24,17 +24,18 @@ class RawCookieWriter {
   static final instance = RawCookieWriter._();
 
   static const _channel = MethodChannel('com.fluxdo/raw_cookie');
-  static const _sharedStorageIsolatedCookieNames = {'cf_clearance'};
+  static const _sharedStorageIsolatedCookieNames = {
+    'cf_clearance',
+    '_t',
+    '_forum_session',
+  };
 
   /// 当前平台是否有 native method channel 实现。
   bool get _hasNativeChannel =>
-      io.Platform.isAndroid ||
-      io.Platform.isIOS ||
-      io.Platform.isMacOS;
+      io.Platform.isAndroid || io.Platform.isIOS || io.Platform.isMacOS;
 
   /// 当前平台是否走 Dart fallback (flutter_inappwebview CookieManager)。
-  bool get _hasDartFallback =>
-      io.Platform.isWindows || io.Platform.isLinux;
+  bool get _hasDartFallback => io.Platform.isWindows || io.Platform.isLinux;
 
   /// 是否支持当前平台 (native 或 Dart fallback 任一可用即支持)。
   bool get isSupported => _hasNativeChannel || _hasDartFallback;
@@ -221,19 +222,21 @@ class RawCookieWriter {
         {'url': url},
       );
       if (raw == null) return const [];
-      return raw.map((m) {
-        final map = Map<String, dynamic>.from(m);
-        return CookieFullInfo(
-          name: map['name'] as String? ?? '',
-          value: map['value'] as String? ?? '',
-          domain: map['domain'] as String?,
-          path: map['path'] as String?,
-          isSecure: map['isSecure'] as bool?,
-          isHttpOnly: map['isHttpOnly'] as bool?,
-          expiresMillis: map['expiresMillis'] as int?,
-          sameSite: map['sameSite'] as String?,
-        );
-      }).toList(growable: false);
+      return raw
+          .map((m) {
+            final map = Map<String, dynamic>.from(m);
+            return CookieFullInfo(
+              name: map['name'] as String? ?? '',
+              value: map['value'] as String? ?? '',
+              domain: map['domain'] as String?,
+              path: map['path'] as String?,
+              isSecure: map['isSecure'] as bool?,
+              isHttpOnly: map['isHttpOnly'] as bool?,
+              expiresMillis: map['expiresMillis'] as int?,
+              sameSite: map['sameSite'] as String?,
+            );
+          })
+          .toList(growable: false);
     } on PlatformException catch (e) {
       debugPrint('[RawCookieWriter] getAllCookieInfos failed: $e');
       return const [];

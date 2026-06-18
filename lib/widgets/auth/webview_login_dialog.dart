@@ -590,12 +590,14 @@ document.close();
     // 不能加载完整 Discourse 前端，低版本 iOS/WKWebView 兼容性不够稳定。
     try {
       final controller = _controller;
+      var bootstrapped = false;
       if (controller != null) {
-        await WebViewSessionCookieRefreshService.instance.runOnController(
-          controller,
-          reason: 'native_login_success',
-          pluginCandidates: PreloadedDataService().pluginCandidatesSync,
-        );
+        bootstrapped = await WebViewSessionCookieRefreshService.instance
+            .runOnController(
+              controller,
+              reason: 'native_login_success',
+              pluginCandidates: PreloadedDataService().pluginCandidatesSync,
+            );
       }
       await BoundarySyncService.instance.syncFromWebView(
         controller: controller,
@@ -605,8 +607,25 @@ document.close();
         requestGeneration: _flowGeneration,
         trusted: true,
       );
+      final runtimeDetails = await CookieJarService()
+          .getCookieDiagnosticsForRequest(
+            Uri.parse(AppConstants.baseUrl),
+            names: const {'_rt'},
+          );
+      final hasRuntimeCookie = runtimeDetails.any(
+        (cookie) => (cookie['valueLength'] as int? ?? 0) > 0,
+      );
+      final tToken = await CookieJarService().getTToken();
+      if (hasRuntimeCookie) {
+        WebViewSessionCookieRefreshService.instance.markSynced(
+          reason: 'native_login_success',
+          tToken: tToken,
+          hasRuntimeCookie: hasRuntimeCookie,
+        );
+      }
       await WebViewSessionCookieRefreshService.instance.logCookieSummary(
         reason: 'native_login_success',
+        bootstrapOk: bootstrapped,
       );
     } catch (e) {
       debugPrint('[WebViewLogin] syncFromWebView 失败: $e');

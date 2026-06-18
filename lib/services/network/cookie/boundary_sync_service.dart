@@ -193,8 +193,7 @@ class BoundarySyncService {
         // domain 处理：优先用平台返回值，旧 Android 兜底
         String? domain;
         final rawDomain = wc.domain?.trim();
-        final shouldForceSessionHostOnly =
-            io.Platform.isAndroid && isHostOnlyCookie;
+        final shouldForceSessionHostOnly = isHostOnlyCookie;
         if (shouldForceSessionHostOnly) {
           domain = null;
           if (rawDomain != null && rawDomain.isNotEmpty) {
@@ -292,6 +291,16 @@ class BoundarySyncService {
         await jar.saveFromResponseTrusted(uri, toSave, trusted: true);
       } else {
         await jar.saveFromResponse(uri, toSave);
+      }
+      final authNames = toSave
+          .map((cookie) => cookie.name)
+          .where(CookieJarService.hostOnlyCookieNames.contains)
+          .toSet();
+      if (authNames.isNotEmpty) {
+        await _jar.enforceAuthCookiePolicy(
+          reason: 'boundary_sync',
+          names: authNames,
+        );
       }
       final syncedDetails = await _jar.getCookieDiagnosticsForRequest(
         uri,
@@ -477,9 +486,16 @@ class BoundarySyncService {
     required Cookie selected,
     required bool isSessionCookie,
   }) {
+    final distinctValues = cookies
+        .map((cookie) => cookie.value?.toString() ?? '')
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final level = isSessionCookie || distinctValues.length > 1
+        ? 'warning'
+        : 'debug';
     LogWriter.instance.write({
       'timestamp': DateTime.now().toIso8601String(),
-      'level': 'warning',
+      'level': level,
       'type': 'cookie_conflict',
       'event': isSessionCookie
           ? 'duplicate_session_cookie_from_webview'

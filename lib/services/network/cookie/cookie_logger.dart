@@ -89,6 +89,7 @@ class CookieLogger {
     if (extraFields != null && extraFields.isNotEmpty) {
       entry.addAll(extraFields);
     }
+    entry['level'] = 'debug';
     LogWriter.instance.write(entry);
   }
 
@@ -177,8 +178,8 @@ class CookieLogger {
   }) {
     final level = switch (event) {
       'failed' => 'warning',
-      // invoked / noop 每次 sweep 都会产生，记为 debug 仅开发者模式落盘
-      'noop' || 'invoked' => 'debug',
+      // invoked / noop / swept 每次 sweep 都可能产生，记为 debug 仅开发者模式落盘
+      'noop' || 'invoked' || 'swept' => 'debug',
       _ => 'info',
     };
     final msg = 'sweep_$event: $name @ $url';
@@ -211,7 +212,7 @@ class CookieLogger {
     int? primingDurationMs,
     int? totalElapsedMs,
   }) {
-    final level = event == 'triggered' ? 'warning' : 'info';
+    final level = 'debug';
     final msg = 'nuclear_reset_$event @ $url';
     debugPrint('[Cookie:Nuclear] $msg');
     LogWriter.instance.write({
@@ -240,7 +241,7 @@ class CookieLogger {
     final level = switch (event) {
       'failed' => 'warning',
       'invoked' => 'debug',
-      _ => 'info',
+      _ => 'debug',
     };
     final msg = 'priming_$event @ $url';
     debugPrint('[Cookie:Priming] $msg');

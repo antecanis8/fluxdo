@@ -5,8 +5,10 @@ import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../browser_trust_coordinator.dart';
 import '../../cf_challenge_service.dart';
 import '../exceptions/api_exception.dart';
+import '../cookie/cookie_jar_service.dart';
 import '../request_scheduler_config.dart';
 
 /// 请求优先级
@@ -191,6 +193,8 @@ class RequestSchedulerInterceptor extends Interceptor {
       return;
     }
 
+    await _waitForBrowserTrustIfNeeded(options);
+
     final state = _stateFor(options);
     final priority = _inferPriority(options);
     final maxConcurrent = RequestSchedulerConfig.maxConcurrent;
@@ -315,5 +319,22 @@ class RequestSchedulerInterceptor extends Interceptor {
       state.pendingTimer = null;
       _scheduleNext(state);
     });
+  }
+
+  Future<void> _waitForBrowserTrustIfNeeded(RequestOptions options) async {
+    if (options.extra['skipBrowserTrustGate'] == true ||
+        options.extra['skipCfBlock'] == true ||
+        options.extra['isCfChallengePlatform'] == true) {
+      return;
+    }
+
+    final host = options.uri.host;
+    if (host.isEmpty || !CookieJarService.matchesAppHost(host)) {
+      return;
+    }
+
+    await BrowserTrustCoordinator.instance.waitForActiveBrowserTrust(
+      reason: '${options.method.toUpperCase()} ${options.uri}',
+    );
   }
 }

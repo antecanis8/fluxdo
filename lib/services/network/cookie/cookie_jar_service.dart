@@ -34,23 +34,16 @@ class CookieJarService {
   /// 这些是 Discourse 内核约定的 cookie 名,
   /// 用于 boundary_sync_service / webview_login_page / 诊断接口的
   /// "Discourse 登录态"判断, 不应混入其他业务 cookie。
-  static const Set<String> sessionCookieNames = {
-    '_t',
-    '_forum_session',
-  };
+  static const Set<String> sessionCookieNames = {'_t', '_forum_session'};
 
   /// 登录收口需要同步的核心 cookie 集合。
   ///
   /// 额外由页面脚本/服务端风控产生的 cookie 不在这里按名字维护，
   /// 由 WebViewSessionCookieRefreshService 加载页面后统一同步。
-  static const Set<String> authCookieNames = {
-    ...sessionCookieNames,
-  };
+  static const Set<String> authCookieNames = {...sessionCookieNames};
 
   /// 主域 host-only cookie。
-  static const Set<String> hostOnlyCookieNames = {
-    ...authCookieNames,
-  };
+  static const Set<String> hostOnlyCookieNames = {...authCookieNames};
 
   /// WV 必须保持与 jar 同步的关键 cookie 集合。
   ///
@@ -118,54 +111,195 @@ class CookieJarService {
     await _migrateSessionCookiesToHostOnly();
   }
 
-  /// 历史脏数据迁移: 把 authCookieNames 里被错误存为 domain cookie
-  /// 的登录核心 cookie 改回 host-only。
+  /// 历史脏数据迁移: 把 authCookieNames 收敛成主域 host-only 单副本。
   ///
   /// 触发原因: 早期版本 boundary_sync 把 WebView 回读的裸 host(无前导点)
   /// 当作 Domain= 直接写入 jar, 导致 _t 等 host-only cookie 变成 domain
-  /// cookie 挂到 connect.linux.do / cdk.linux.do 等子域名上。修复后此处
-  /// 把存量数据原地校正, 避免老用户继续受影响。
+  /// cookie 挂到 connect.linux.do / cdk.linux.do 等子域名上；另一些版本会把
+  /// `_t` 存成不同 path。这里统一收敛，避免老用户继续受影响。
   Future<void> _migrateSessionCookiesToHostOnly() async {
+    await enforceAuthCookiePolicy(reason: 'legacy_migration');
+  }
+
+  /// 强制登录态 cookie 的站点单例策略。
+  ///
+  /// `_t` / `_forum_session` 是 Discourse 主站登录态，只应存在一份：
+  /// `(hostOnly=true, domain=baseHost, path=/)`。WebView/CDP 回读时经常会把
+  /// host-only cookie 表现成 `domain=linux.do`，或者在不同 path/domain 下留下
+  /// 副本；这些副本不能进入 jar 的长期状态。
+  Future<int> enforceAuthCookiePolicy({
+    String reason = 'unknown',
+    Iterable<String>? names,
+  }) async {
+    if (!_initialized) await initialize();
+
     final jar = _cookieJar;
-    if (jar is! EnhancedPersistCookieJar) return;
+    if (jar is! EnhancedPersistCookieJar) return 0;
 
     try {
-      final baseHost = Uri.parse(AppConstants.baseUrl).host.toLowerCase();
+      final baseUri = Uri.parse(AppConstants.baseUrl);
+      final baseHost = baseUri.host.toLowerCase();
+      final targetNames = (names ?? hostOnlyCookieNames)
+          .where(hostOnlyCookieNames.contains)
+          .toSet();
+      if (targetNames.isEmpty) return 0;
+
       final all = await jar.readAllCookies();
-      final patched = <CanonicalCookie>[];
+      var changed = 0;
 
-      for (final cookie in all) {
-        if (!authCookieNames.contains(cookie.name)) continue;
-        if (cookie.hostOnly) continue;
-        final normalized = cookie.normalizedDomain;
-        if (normalized != baseHost) continue;
+      for (final name in targetNames) {
+        final candidates = all
+            .where(
+              (cookie) =>
+                  cookie.name == name &&
+                  matchesAppHost(cookie.normalizedDomain ?? cookie.domain),
+            )
+            .toList(growable: false);
+        if (candidates.isEmpty) continue;
 
-        patched.add(
-          cookie.copyWith(
-            hostOnly: true,
-            domain: baseHost,
-          ),
+        final active = candidates
+            .where(_isActiveAuthCookieCandidate)
+            .toList(growable: false);
+        if (active.isEmpty) {
+          final removed = await jar.replaceByNameForSite(
+            baseUri,
+            name,
+            const [],
+          );
+          if (removed > 0) {
+            changed++;
+            debugPrint(
+              '[CookieJar] Auth cookie policy removed $name variants: '
+              'reason=$reason removed=$removed',
+            );
+          }
+          continue;
+        }
+
+        final winner = _selectBestAuthCookie(active, baseHost);
+        final normalized = _normalizeAuthCookie(winner, baseUri);
+
+        if (candidates.length == 1 &&
+            _isCanonicalAuthCookie(candidates.single, normalized, baseHost)) {
+          continue;
+        }
+
+        final removed = await jar.replaceByNameForSite(baseUri, name, [
+          normalized,
+        ]);
+        changed++;
+        debugPrint(
+          '[CookieJar] Auth cookie policy normalized $name: '
+          'reason=$reason candidates=${candidates.length} removed=$removed '
+          'domain=${normalized.domain} path=${normalized.path} '
+          'hostOnly=${normalized.hostOnly} len=${normalized.value.length}',
         );
       }
 
-      if (patched.isEmpty) return;
-
-      // saveCanonicalCookies 的 storageKey 不含 hostOnly,
-      // 同 (name, domain, path) 的旧条目会被替换为 hostOnly=true 版本。
-      // trusted=true: 迁移是对存量数据的权威修正, patched 条目的
-      // version/expires/creationTime 与原条目完全相同, 非 trusted 写入
-      // 会被 isFresherThan 仲裁判定"不更新鲜"而静默跳过, 迁移失效。
-      await jar.saveCanonicalCookies(
-        Uri.parse(AppConstants.baseUrl),
-        patched,
-        trusted: true,
-      );
-      debugPrint(
-        '[CookieJar] Migrated ${patched.length} session cookie(s) back to host-only',
-      );
+      return changed;
     } catch (e) {
-      debugPrint('[CookieJar] Session cookie migration failed: $e');
+      debugPrint('[CookieJar] Auth cookie policy failed: $e');
+      return 0;
     }
+  }
+
+  bool _isActiveAuthCookieCandidate(CanonicalCookie cookie) {
+    if (cookie.value.isEmpty || cookie.value == 'del') return false;
+    return !cookie.isExpired;
+  }
+
+  CanonicalCookie _selectBestAuthCookie(
+    List<CanonicalCookie> cookies,
+    String baseHost,
+  ) {
+    final sorted = [...cookies]
+      ..sort((a, b) => _compareAuthCookie(a, b, baseHost));
+    return sorted.first;
+  }
+
+  int _compareAuthCookie(
+    CanonicalCookie a,
+    CanonicalCookie b,
+    String baseHost,
+  ) {
+    final scoreDiff = _authCookieScore(
+      b,
+      baseHost,
+    ).compareTo(_authCookieScore(a, baseHost));
+    if (scoreDiff != 0) return scoreDiff;
+
+    final versionDiff = b.version.compareTo(a.version);
+    if (versionDiff != 0) return versionDiff;
+
+    final aExpires = a.expiresAt;
+    final bExpires = b.expiresAt;
+    if (aExpires != null && bExpires != null && aExpires != bExpires) {
+      return bExpires.compareTo(aExpires);
+    }
+    if (aExpires != null || bExpires != null) {
+      return aExpires == null ? 1 : -1;
+    }
+
+    final createdDiff = b.creationTime.compareTo(a.creationTime);
+    if (createdDiff != 0) return createdDiff;
+
+    return b.value.length.compareTo(a.value.length);
+  }
+
+  int _authCookieScore(CanonicalCookie cookie, String baseHost) {
+    var score = 0;
+    final normalizedDomain = cookie.normalizedDomain;
+    if (normalizedDomain == baseHost) score += 100000;
+    if (cookie.hostOnly) score += 50000;
+    if (cookie.path == '/') score += 25000;
+    if (cookie.secure) score += 5000;
+    if (cookie.httpOnly) score += 5000;
+    return score;
+  }
+
+  CanonicalCookie _normalizeAuthCookie(CanonicalCookie source, Uri baseUri) {
+    final baseHost = baseUri.host.toLowerCase();
+    return CanonicalCookie(
+      name: source.name,
+      value: source.value,
+      domain: baseHost,
+      path: '/',
+      expiresAt: source.expiresAt,
+      maxAge: source.maxAge,
+      secure: source.secure || baseUri.scheme == 'https',
+      httpOnly: source.httpOnly || authCookieNames.contains(source.name),
+      sameSite: source.sameSite,
+      hostOnly: true,
+      persistent: source.persistent,
+      creationTime: source.creationTime,
+      lastAccessTime: source.lastAccessTime,
+      priority: source.priority,
+      sameParty: source.sameParty,
+      sourceScheme: source.sourceScheme,
+      sourcePort: source.sourcePort,
+      partitionKey: source.partitionKey,
+      partitioned: source.partitioned,
+      originUrl: AppConstants.baseUrl,
+      source: source.source,
+      version: source.version,
+      lastSyncedToWebViewAt: source.lastSyncedToWebViewAt,
+      lastSyncedFromWebViewAt: source.lastSyncedFromWebViewAt,
+      rawSetCookie: null,
+    );
+  }
+
+  bool _isCanonicalAuthCookie(
+    CanonicalCookie cookie,
+    CanonicalCookie normalized,
+    String baseHost,
+  ) {
+    return cookie.value == normalized.value &&
+        cookie.hostOnly &&
+        cookie.normalizedDomain == baseHost &&
+        cookie.path == '/' &&
+        cookie.secure == normalized.secure &&
+        cookie.httpOnly == normalized.httpOnly &&
+        cookie.rawSetCookie == null;
   }
 
   // ---------------------------------------------------------------------------
@@ -343,6 +477,9 @@ class CookieJarService {
         await jar.saveFromResponseTrusted(uri, [cookie], trusted: true);
       } else {
         await _cookieJar!.saveFromResponse(uri, [cookie]);
+      }
+      if (hostOnlyCookieNames.contains(name)) {
+        await enforceAuthCookiePolicy(reason: 'setCookie', names: {name});
       }
     } catch (e) {
       debugPrint('[CookieJar] Failed to set cookie $name: $e');
@@ -541,9 +678,10 @@ class CookieJarService {
       final uri = Uri.parse(AppConstants.baseUrl);
       final cookies = await _cookieJar!.loadForRequest(uri);
       if (cookies.isEmpty) return null;
-      return cookies
-          .map((c) => '${c.name}=${CookieValueCodec.decode(c.value)}')
-          .join('; ');
+      return _selectCookiesForHeader(
+        cookies,
+        uri,
+      ).map((c) => '${c.name}=${CookieValueCodec.decode(c.value)}').join('; ');
     } catch (e) {
       debugPrint('[CookieJar] Failed to get cookie header: $e');
       return null;
@@ -553,6 +691,68 @@ class CookieJarService {
   // ---------------------------------------------------------------------------
   // 工具方法
   // ---------------------------------------------------------------------------
+
+  List<io.Cookie> _selectCookiesForHeader(List<io.Cookie> cookies, Uri uri) {
+    final requestHost = uri.host.toLowerCase();
+    final selected = <String, io.Cookie>{};
+    for (final cookie in cookies) {
+      final isHostOnlyAuth = hostOnlyCookieNames.contains(cookie.name);
+      if (isHostOnlyAuth && requestHost != appBaseHost) continue;
+      final key = isHostOnlyAuth
+          ? cookie.name
+          : '${cookie.name}|${cookie.path ?? '/'}';
+      final existing = selected[key];
+      if (existing == null ||
+          _compareHeaderCookiePriority(cookie, existing, requestHost) > 0) {
+        selected[key] = cookie;
+      }
+    }
+    return selected.values.toList()..sort((a, b) {
+      final pathCompare = (b.path?.length ?? 0).compareTo(a.path?.length ?? 0);
+      if (pathCompare != 0) return pathCompare;
+      return _compareHeaderCookiePriority(b, a, requestHost);
+    });
+  }
+
+  int _compareHeaderCookiePriority(
+    io.Cookie candidate,
+    io.Cookie existing,
+    String requestHost,
+  ) {
+    final scoreDiff =
+        _headerCookiePriorityScore(candidate, requestHost) -
+        _headerCookiePriorityScore(existing, requestHost);
+    if (scoreDiff != 0) return scoreDiff;
+    return candidate.value.length.compareTo(existing.value.length);
+  }
+
+  int _headerCookiePriorityScore(io.Cookie cookie, String requestHost) {
+    final normalizedDomain = cookie.domain?.trim().toLowerCase().replaceFirst(
+      RegExp(r'^\.'),
+      '',
+    );
+    final isHostOnlyAuth = hostOnlyCookieNames.contains(cookie.name);
+    final isRootPath = cookie.path == null || cookie.path == '/';
+
+    var score = 0;
+    if (normalizedDomain == null || normalizedDomain.isEmpty) {
+      score = 10000;
+    } else if (normalizedDomain == requestHost) {
+      score = 9000 + normalizedDomain.length;
+    } else if (requestHost.endsWith('.$normalizedDomain')) {
+      score = 1000 + normalizedDomain.length;
+    } else {
+      score = normalizedDomain.length;
+    }
+
+    if (isHostOnlyAuth) {
+      if (requestHost == appBaseHost) score += 2000;
+      if (isRootPath) score += 1500;
+      if (cookie.httpOnly) score += 250;
+      if (cookie.secure) score += 250;
+    }
+    return score;
+  }
 
   /// 从 jar 中扫描已知的相关域名
   Future<Set<String>> getKnownHostsForDomain(String baseDomain) async {
@@ -599,12 +799,17 @@ class CookieJarService {
   static bool isCriticalCookie(String name) =>
       criticalCookieNames.contains(name);
 
+  /// 应用主站 host。
+  static String get appBaseHost =>
+      Uri.parse(AppConstants.baseUrl).host.toLowerCase();
+
   /// 检查 domain 是否匹配应用主域
   static bool matchesAppHost(String? domain) {
-    final baseHost = Uri.parse(AppConstants.baseUrl).host;
+    final baseHost = appBaseHost;
     final normalized = domain?.trim().replaceFirst(RegExp(r'^\.'), '');
     if (normalized == null || normalized.isEmpty) return true;
-    return normalized == baseHost || normalized.endsWith('.$baseHost');
+    final lower = normalized.toLowerCase();
+    return lower == baseHost || lower.endsWith('.$baseHost');
   }
 
   /// Windows：通过页面级 controller 的 CDP 读取实时 cookie 值。
@@ -684,6 +889,17 @@ class CookieJarService {
       final jar = _cookieJar;
       if (jar is EnhancedPersistCookieJar) {
         await jar.saveFromCdpCookies(uri, filtered, trusted: trusted);
+        final authNames = filtered
+            .map((raw) => raw['name']?.toString())
+            .whereType<String>()
+            .where(hostOnlyCookieNames.contains)
+            .toSet();
+        if (authNames.isNotEmpty) {
+          await enforceAuthCookiePolicy(
+            reason: 'windows_cdp_sync',
+            names: authNames,
+          );
+        }
         return filtered.length;
       }
 
@@ -723,6 +939,16 @@ class CookieJarService {
 
       if (toSave.isEmpty) return 0;
       await _cookieJar!.saveFromResponse(uri, toSave);
+      final authNames = toSave
+          .map((cookie) => cookie.name)
+          .where(hostOnlyCookieNames.contains)
+          .toSet();
+      if (authNames.isNotEmpty) {
+        await enforceAuthCookiePolicy(
+          reason: 'windows_controller_sync',
+          names: authNames,
+        );
+      }
       return toSave.length;
     } catch (e) {
       debugPrint('[CookieJar][Windows] Failed to sync live cookies: $e');

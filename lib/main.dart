@@ -53,6 +53,7 @@ import 'services/background/background_notification_service.dart';
 import 'services/message_bus_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/log/json_file_handler.dart';
+import 'services/log/filtered_catcher_logger.dart';
 import 'services/log/log_writer.dart';
 import 'services/download_service.dart';
 import 'services/migration_service.dart';
@@ -378,12 +379,14 @@ Future<void> main() async {
     [ConsoleHandler(), JsonFileHandler()],
     handlerTimeout: 10000,
     filterFunction: filterKnownFrameworkBugs,
+    logger: FilteredCatcherLogger(),
   );
   final releaseConfig = Catcher2Options(
     SilentReportMode(),
     [JsonFileHandler()],
     handlerTimeout: 10000,
     filterFunction: filterKnownFrameworkBugs,
+    logger: FilteredCatcherLogger(),
   );
 
   // 把 ai_model_manager 包内的诊断日志桥接到主应用 AppLogger,
@@ -969,10 +972,7 @@ class _MainPageState extends ConsumerState<MainPage>
     } catch (e) {
       debugPrint('[MainPage] 恢复前台失败: $e');
     } finally {
-      BrowserTrustCoordinator.instance.resumeFromBackground(
-        reason: 'resume',
-        force: true,
-      );
+      BrowserTrustCoordinator.instance.resumeFromBackground(reason: 'resume');
     }
   }
 

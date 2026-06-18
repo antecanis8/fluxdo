@@ -1444,14 +1444,14 @@ mixin _AuthMixin on _DiscourseServiceBase {
 
   /// 登录成功后通知监听者（应在预加载数据就绪后调用）
   /// 会话写入由显式边界同步统一处理。
-  void onLoginSuccess(String tToken) {
+  void onLoginSuccess(String tToken, {bool forceBrowserSessionSync = true}) {
     _clearPreviousTTokenFallback();
     _tToken = tToken;
     _credentialsLoaded = false;
     AuthIssueNoticeService.instance.clearSessionCookieRepairHint();
     WebViewSessionCookieRefreshService.instance.ensureInBackground(
       reason: 'login_success',
-      force: true,
+      force: forceBrowserSessionSync,
     );
     _authStateController.add(null);
   }

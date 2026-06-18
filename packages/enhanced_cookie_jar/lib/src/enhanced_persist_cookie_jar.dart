@@ -8,7 +8,9 @@ import 'file_cookie_store.dart';
 import 'set_cookie_parser.dart';
 
 class EnhancedPersistCookieJar implements base.CookieJar {
-  EnhancedPersistCookieJar({required FileCookieStore store, this.ignoreExpires = false}) : _store = store;
+  EnhancedPersistCookieJar(
+      {required FileCookieStore store, this.ignoreExpires = false})
+      : _store = store;
 
   final FileCookieStore _store;
 
@@ -27,7 +29,8 @@ class EnhancedPersistCookieJar implements base.CookieJar {
     return result;
   }
 
-  Future<List<CanonicalCookie>> readAllCookies() async => List.unmodifiable(await _readAll());
+  Future<List<CanonicalCookie>> readAllCookies() async =>
+      List.unmodifiable(await _readAll());
 
   Future<List<CanonicalCookie>> _readAll() async {
     final cached = _cache;
@@ -73,8 +76,8 @@ class EnhancedPersistCookieJar implements base.CookieJar {
         domain: cookie.domain ?? uri.host.toLowerCase(),
         path: cookie.path.isEmpty ? '/' : cookie.path,
       );
-      final idx =
-          all.indexWhere((existing) => existing.storageKey == resolved.storageKey);
+      final idx = all
+          .indexWhere((existing) => existing.storageKey == resolved.storageKey);
       if (idx >= 0) {
         final existing = all[idx];
         if (trusted) {
@@ -108,7 +111,8 @@ class EnhancedPersistCookieJar implements base.CookieJar {
     List<String> headers, {
     bool trusted = false,
   }) async {
-    final cookies = headers.map((e) => SetCookieParser.parse(e, uri: uri)).toList();
+    final cookies =
+        headers.map((e) => SetCookieParser.parse(e, uri: uri)).toList();
     await saveCanonicalCookies(uri, cookies, trusted: trusted);
   }
 
@@ -126,13 +130,16 @@ class EnhancedPersistCookieJar implements base.CookieJar {
 
   Future<List<CanonicalCookie>> loadCanonicalForRequest(Uri uri) async {
     final all = await _readAll();
-    final filtered = all.where((cookie) => _matches(uri, cookie) && (ignoreExpires || !cookie.isExpired)).toList()
+    final filtered = all
+        .where((cookie) =>
+            _matches(uri, cookie) && (ignoreExpires || !cookie.isExpired))
+        .toList()
       ..sort((a, b) {
         final pathCompare = b.path.length.compareTo(a.path.length);
         if (pathCompare != 0) return pathCompare;
 
-        final domainCompare =
-            (b.normalizedDomain?.length ?? 0).compareTo(a.normalizedDomain?.length ?? 0);
+        final domainCompare = (b.normalizedDomain?.length ?? 0)
+            .compareTo(a.normalizedDomain?.length ?? 0);
         if (domainCompare != 0) return domainCompare;
 
         if (a.hostOnly != b.hostOnly) {
@@ -152,7 +159,8 @@ class EnhancedPersistCookieJar implements base.CookieJar {
 
   @override
   Future<void> saveFromResponse(Uri uri, List<io.Cookie> cookies) async {
-    final canonical = cookies.map((e) => SetCookieParser.fromIoCookie(e, uri: uri)).toList();
+    final canonical =
+        cookies.map((e) => SetCookieParser.fromIoCookie(e, uri: uri)).toList();
     await saveCanonicalCookies(uri, canonical);
   }
 
@@ -198,14 +206,50 @@ class EnhancedPersistCookieJar implements base.CookieJar {
       final before = all.length;
       all.removeWhere((cookie) {
         if (cookie.name != name) return false;
-        final matchDomain = cookie.normalizedDomain ?? _originHost(cookie);
-        if (matchDomain == null || matchDomain.isEmpty) return true;
-        return host == matchDomain ||
-            host.endsWith('.$matchDomain') ||
-            matchDomain.endsWith('.$host');
+        return _isSiteRelated(host, cookie);
       });
       final removed = before - all.length;
       if (removed > 0) {
+        await _writeAll(all);
+      }
+      return removed;
+    });
+  }
+
+  /// 原子替换与 [uri] 站点相关的指定 name。
+  ///
+  /// 用于把 `_t` / `_forum_session` 这类站点单例 cookie 收敛为唯一规范
+  /// 形态。相比先 [deleteByName] 再 [saveCanonicalCookies]，本方法在同一把
+  /// jar 串行锁内完成，避免并发请求读到“已删未写”的半截状态。
+  Future<int> replaceByNameForSite(
+    Uri uri,
+    String name,
+    List<CanonicalCookie> replacements,
+  ) {
+    return _synchronized(() async {
+      final host = uri.host.toLowerCase();
+      final all = [...await _readAll()];
+      final before = all.length;
+
+      all.removeWhere((cookie) {
+        if (cookie.name != name) return false;
+        return _isSiteRelated(host, cookie);
+      });
+
+      final deduped = <String, CanonicalCookie>{};
+      for (final cookie in replacements) {
+        if (cookie.name != name) continue;
+        var resolved = cookie.copyWith(
+          domain: cookie.domain ?? host,
+          path: cookie.path.isEmpty ? '/' : cookie.path,
+        );
+        if (!ignoreExpires && resolved.isExpired) continue;
+        deduped[resolved.storageKey] = resolved;
+      }
+      all.addAll(deduped.values);
+
+      final removed = before - (all.length - deduped.length);
+      if (removed > 0 || deduped.isNotEmpty) {
         await _writeAll(all);
       }
       return removed;
@@ -270,7 +314,16 @@ class EnhancedPersistCookieJar implements base.CookieJar {
     return originHost.toLowerCase();
   }
 
-  bool _domainMatches(String host, String? cookieDomain, {bool hostOnly = false}) {
+  bool _isSiteRelated(String host, CanonicalCookie cookie) {
+    final matchDomain = cookie.normalizedDomain ?? _originHost(cookie);
+    if (matchDomain == null || matchDomain.isEmpty) return true;
+    return host == matchDomain ||
+        host.endsWith('.$matchDomain') ||
+        matchDomain.endsWith('.$host');
+  }
+
+  bool _domainMatches(String host, String? cookieDomain,
+      {bool hostOnly = false}) {
     final normalizedHost = host.toLowerCase();
     if (cookieDomain == null || cookieDomain.isEmpty) return false;
     if (hostOnly) return normalizedHost == cookieDomain;
@@ -281,9 +334,12 @@ class EnhancedPersistCookieJar implements base.CookieJar {
   bool _pathMatches(String requestPath, String cookiePath) {
     final normalizedRequest = requestPath.isEmpty ? '/' : requestPath;
     final normalizedCookie = cookiePath.isEmpty ? '/' : cookiePath;
-    if (normalizedCookie == '/' || normalizedRequest == normalizedCookie) return true;
+    if (normalizedCookie == '/' || normalizedRequest == normalizedCookie) {
+      return true;
+    }
     if (!normalizedRequest.startsWith(normalizedCookie)) return false;
     if (normalizedCookie.endsWith('/')) return true;
-    return normalizedRequest.length > normalizedCookie.length && normalizedRequest[normalizedCookie.length] == '/';
+    return normalizedRequest.length > normalizedCookie.length &&
+        normalizedRequest[normalizedCookie.length] == '/';
   }
 }

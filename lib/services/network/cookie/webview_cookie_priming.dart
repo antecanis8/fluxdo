@@ -123,6 +123,7 @@ class WebViewCookiePriming {
       if (!_jar.isInitialized) {
         await _jar.initialize();
       }
+      await _jar.enforceAuthCookiePolicy(reason: 'webview_priming');
 
       // 2. 从 jar 读"当前 url 适用的所有 cookie" (RFC 6265 domain matching)
       // 不再按 criticalCookieNames 过滤 — 该列表 hard-code 维护不可持续
@@ -214,13 +215,15 @@ class WebViewCookiePriming {
 
         // c) verify 是否恰好 1 条
         final postCount = writeResult.postCount;
+        final observedPostCount = writeResult.observedPostCount ?? postCount;
         final isOk = postCount == 1;
-        if (!isOk) mismatched[writtenCookie.name] = postCount;
+        if (!isOk) mismatched[writtenCookie.name] = observedPostCount;
         debugPrint(
           '[Priming] ${writtenCookie.name} '
           '(hostOnly=${writtenCookie.hostOnly}, domain=${writtenCookie.domain}, '
           'len=${writtenCookie.value.length}) write=${writeResult.written} '
-          'postCount=$postCount attempts=${writeResult.attempts} '
+          'postCount=$observedPostCount attempts=${writeResult.attempts} '
+          '${writeResult.acceptedDuplicate ? "acceptedDuplicate=true " : ""}'
           '${isOk ? "✓" : "⚠️ expected=1"}',
         );
 
@@ -231,7 +234,8 @@ class WebViewCookiePriming {
               .where((c) => c.name == writtenCookie.name)
               .toList();
           debugPrint(
-            '[Priming] ⚠️ ${writtenCookie.name} variants in WV ($postCount):',
+            '[Priming] ⚠️ ${writtenCookie.name} variants in WV '
+            '($observedPostCount):',
           );
           for (var i = 0; i < variants.length; i++) {
             debugPrint('  [$i] ${variants[i]}');
@@ -317,7 +321,25 @@ class WebViewCookiePriming {
       );
       written = written || ok;
       postCount = await _writer.countCookiesByName(url, fresh.name);
-      if (postCount == 1 || attempt == _variantCleanupMaxAttempts) {
+      if (postCount == 1) {
+        return _PrimeWriteResult(
+          written: written,
+          postCount: postCount,
+          attempts: attempt,
+          cookie: fresh,
+        );
+      }
+      if (await _isAcceptableDuplicate(url, fresh, postCount)) {
+        return _PrimeWriteResult(
+          written: written,
+          postCount: 1,
+          observedPostCount: postCount,
+          attempts: attempt,
+          cookie: fresh,
+          acceptedDuplicate: true,
+        );
+      }
+      if (attempt == _variantCleanupMaxAttempts) {
         return _PrimeWriteResult(
           written: written,
           postCount: postCount,
@@ -340,6 +362,28 @@ class WebViewCookiePriming {
     final expiresAt = cookie.expiresAt;
     return expiresAt != null && expiresAt.isBefore(DateTime.now());
   }
+
+  Future<bool> _isAcceptableDuplicate(
+    String url,
+    CanonicalCookie cookie,
+    int postCount,
+  ) async {
+    if (cookie.name != 'cf_clearance' || postCount <= 1) return false;
+    final variants = (await _writer.getAllCookieInfos(
+      url,
+    )).where((variant) => variant.name == cookie.name).toList(growable: false);
+    if (variants.length <= 1) return false;
+    final sameValue = variants.every(
+      (variant) => variant.value == cookie.value,
+    );
+    if (!sameValue) return false;
+
+    debugPrint(
+      '[Priming] ${cookie.name} 存在 ${variants.length} 个同值变体，'
+      '接受并跳过重试清理',
+    );
+    return true;
+  }
 }
 
 class _PrimeWriteResult {
@@ -347,15 +391,19 @@ class _PrimeWriteResult {
     required this.written,
     required this.postCount,
     required this.attempts,
+    this.observedPostCount,
     this.cookie,
     this.skipped = false,
+    this.acceptedDuplicate = false,
   });
 
   final bool written;
   final int postCount;
   final int attempts;
+  final int? observedPostCount;
   final CanonicalCookie? cookie;
   final bool skipped;
+  final bool acceptedDuplicate;
 }
 
 /// WV priming 失败时抛出。

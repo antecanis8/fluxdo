@@ -49,14 +49,16 @@ void main() {
         Uri.parse('https://cdk.linux.do/callback'),
       );
 
-      expect(exactHostCookies.map((e) => e.name), contains('auth.session-token'));
+      expect(
+          exactHostCookies.map((e) => e.name), contains('auth.session-token'));
       expect(
         siblingHostCookies.map((e) => e.name),
         isNot(contains('auth.session-token')),
       );
     });
 
-    test('invalid cookie values are encoded when converted to io.Cookie', () async {
+    test('invalid cookie values are encoded when converted to io.Cookie',
+        () async {
       await jar.saveCanonicalCookies(
         Uri.parse('https://linux.do'),
         [
@@ -552,12 +554,15 @@ void main() {
       await jar.saveFromResponse(Uri.parse('https://linux.do'), [cookie]);
 
       final all = await jar.readAllCookies();
-      print('All cookies: ${all.map((c) => "name=${c.name}, domain=${c.domain}, normalized=${c.normalizedDomain}, hostOnly=${c.hostOnly}").join("; ")}');
+      print(
+          'All cookies: ${all.map((c) => "name=${c.name}, domain=${c.domain}, normalized=${c.normalizedDomain}, hostOnly=${c.hostOnly}").join("; ")}');
 
       final loaded = await jar.loadForRequest(Uri.parse('https://linux.do'));
-      print('Loaded: ${loaded.map((c) => "name=${c.name}, domain=${c.domain}").join("; ")}');
+      print(
+          'Loaded: ${loaded.map((c) => "name=${c.name}, domain=${c.domain}").join("; ")}');
 
-      expect(loaded.any((c) => c.name == '_t'), true, reason: '_t should be loadable');
+      expect(loaded.any((c) => c.name == '_t'), true,
+          reason: '_t should be loadable');
     });
 
     // =========================================================================
@@ -574,8 +579,8 @@ void main() {
           trusted: true,
         );
 
-        final removed =
-            await jar.deleteByName(Uri.parse('https://linux.do'), 'cf_clearance');
+        final removed = await jar.deleteByName(
+            Uri.parse('https://linux.do'), 'cf_clearance');
 
         expect(removed, 1);
         final cookies = await jar.loadForRequest(Uri.parse('https://linux.do'));
@@ -612,6 +617,60 @@ void main() {
 
         final all = await jar.readAllCookies();
         expect(all.map((c) => c.name).toList(), ['_t']);
+      });
+    });
+
+    group('replaceByNameForSite', () {
+      test('原子替换同站相关的同名 cookie，保留其他站点和其他名称', () async {
+        await jar.saveFromSetCookieHeaders(
+          Uri.parse('https://linux.do'),
+          [
+            '_t=main; Path=/; Max-Age=3600',
+            '_t=path; Path=/u; Max-Age=3600',
+            'cf_clearance=cf; Domain=.linux.do; Path=/; Max-Age=3600',
+          ],
+          trusted: true,
+        );
+        await jar.saveFromSetCookieHeaders(
+          Uri.parse('https://connect.linux.do'),
+          ['_t=sub; Path=/; Max-Age=3600'],
+          trusted: true,
+        );
+        await jar.saveFromSetCookieHeaders(
+          Uri.parse('https://example.com'),
+          ['_t=other-site; Path=/; Max-Age=3600'],
+          trusted: true,
+        );
+
+        final removed = await jar.replaceByNameForSite(
+          Uri.parse('https://linux.do'),
+          '_t',
+          [
+            CanonicalCookie(
+              name: '_t',
+              value: 'winner',
+              domain: 'linux.do',
+              path: '/',
+              hostOnly: true,
+              originUrl: 'https://linux.do',
+            ),
+          ],
+        );
+
+        expect(removed, 3);
+        final all = await jar.readAllCookies();
+        final linuxTokens = all
+            .where((c) => c.name == '_t' && c.normalizedDomain == 'linux.do');
+        expect(linuxTokens.length, 1);
+        expect(linuxTokens.single.value, 'winner');
+        expect(linuxTokens.single.hostOnly, true);
+        expect(linuxTokens.single.path, '/');
+        expect(
+          all.where(
+              (c) => c.name == '_t' && c.normalizedDomain == 'example.com'),
+          hasLength(1),
+        );
+        expect(all.map((c) => c.name), contains('cf_clearance'));
       });
     });
 

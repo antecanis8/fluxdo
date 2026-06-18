@@ -29,10 +29,12 @@ class BrowserTrustCoordinator {
   static final BrowserTrustCoordinator instance = BrowserTrustCoordinator._();
 
   static const Duration _trustedClearanceMinTtl = Duration(minutes: 10);
+  static const Duration _requestClearanceMinTtl = Duration(seconds: 30);
   static const Duration _webViewPreloadTimeout = Duration(seconds: 25);
   static const Duration _domSnapshotTimeout = Duration(seconds: 12);
   static const Duration _originLoadTimeout = Duration(seconds: 8);
   static const Duration _backgroundPauseDelay = Duration(seconds: 8);
+  static const Duration _requestGateTimeout = Duration(seconds: 6);
   static const Duration _diagnosticBackgroundPauseDelay = Duration(seconds: 60);
 
   final CookieJarService _jar = CookieJarService();
@@ -40,7 +42,9 @@ class BrowserTrustCoordinator {
 
   Future<void>? _activePreload;
   Future<bool>? _activeBrowserTrust;
+  Future<bool>? _activeBrowserTrustGate;
   Timer? _backgroundPauseTimer;
+  String? _pendingClearanceRefreshReason;
 
   BrowserTrustPreloadPath? _lastPreloadPath;
 
@@ -120,17 +124,79 @@ class BrowserTrustCoordinator {
       if (active != null) return active;
     }
 
-    late final Future<bool> future;
-    future = _ensureBrowserTrustInternal(reason: reason).whenComplete(() {
-      if (identical(_activeBrowserTrust, future)) {
-        _activeBrowserTrust = null;
+    final gateCompleter = Completer<bool>();
+    late final Future<bool> gateFuture;
+    gateFuture = gateCompleter.future.whenComplete(() {
+      if (identical(_activeBrowserTrustGate, gateFuture)) {
+        _activeBrowserTrustGate = null;
       }
     });
+
+    late final Future<bool> future;
+    future =
+        _ensureBrowserTrustInternal(
+          reason: reason,
+          requestGate: gateCompleter,
+          forceSessionSync: force,
+        ).whenComplete(() {
+          _completeRequestGate(gateCompleter, false);
+          if (_pendingClearanceRefreshReason != null) {
+            _startClearanceRefreshIfLoggedIn(reason: 'browser_trust_settled');
+          }
+          if (identical(_activeBrowserTrust, future)) {
+            _activeBrowserTrust = null;
+          }
+        });
+    _activeBrowserTrustGate = gateFuture;
     _activeBrowserTrust = future;
     return future;
   }
 
+  /// 仅等待当前已经在跑的浏览器信任同步，不主动创建新的 WebView。
+  ///
+  /// 用于启动/恢复后的首波业务请求：UI 可以先进入首页，但这些请求如果
+  /// 抢在 WebView session bootstrap / cf_clearance 同步之前发出，容易把
+  /// 本来可恢复的状态打成 403。等待是有上限的，超时后仍放行。
+  Future<bool?> waitForActiveBrowserTrust({
+    String reason = 'unknown',
+    Duration timeout = _requestGateTimeout,
+  }) async {
+    final active = _activeBrowserTrustGate;
+    if (active == null) return null;
+
+    try {
+      _log('wait active browser trust gate begin reason=$reason');
+      final ready = await active.timeout(timeout);
+      _log('wait active browser trust gate end reason=$reason ready=$ready');
+      return ready;
+    } on TimeoutException {
+      _log(
+        'wait active browser trust gate timeout reason=$reason '
+        'timeout=${timeout.inSeconds}s',
+        level: 'warning',
+      );
+      return false;
+    } catch (e) {
+      _log(
+        'wait active browser trust gate failed reason=$reason: $e',
+        level: 'warning',
+      );
+      return false;
+    }
+  }
+
   void startClearanceRefresh({String reason = 'unknown'}) {
+    if (_activeBrowserTrust != null) {
+      _pendingClearanceRefreshReason = reason;
+      _log(
+        'defer cf_clearance refresh until browser trust settles: reason=$reason',
+      );
+      return;
+    }
+    _startClearanceRefreshNow(reason: reason);
+  }
+
+  void _startClearanceRefreshNow({required String reason}) {
     _log('start cf_clearance refresh: reason=$reason');
     CfClearanceRefreshService().start();
   }
@@ -143,7 +209,7 @@ class BrowserTrustCoordinator {
       try {
         await _preload.ensureLoaded();
         _log('native preload success reason=$reason');
-        _startClearanceRefreshIfLoggedIn();
+        _startBrowserTrustAfterNativePreload(reason: reason);
         return;
       } catch (e) {
         _log(
@@ -176,17 +242,79 @@ class BrowserTrustCoordinator {
     );
     await _preload.ensureLoaded();
     _log('fallback native preload success reason=$reason');
-    _startClearanceRefreshIfLoggedIn();
+    _startBrowserTrustAfterNativePreload(reason: reason);
   }
 
-  Future<bool> _ensureBrowserTrustInternal({required String reason}) async {
+  void _startBrowserTrustAfterNativePreload({required String reason}) {
+    if (!_preload.isLoaded) return;
+    if (_preload.currentUserSync == null) {
+      _log('skip native preload browser trust settle: not logged in');
+      return;
+    }
+
+    unawaited(() async {
+      try {
+        final synced = await ensureBrowserTrust(
+          reason: '$reason:native_preload_settle',
+        );
+        _log('native preload browser trust settled=$synced reason=$reason');
+      } catch (e) {
+        _log(
+          'native preload browser trust settle failed: $e',
+          level: 'warning',
+        );
+      }
+    }());
+  }
+
+  Future<bool> _ensureBrowserTrustInternal({
+    required String reason,
+    Completer<bool>? requestGate,
+    required bool forceSessionSync,
+  }) async {
+    final stopwatch = Stopwatch()..start();
     _log('browser trust sync begin reason=$reason');
-    await _primeWebViewCookies(reason: reason);
+    try {
+      final gateStartedAt = stopwatch.elapsedMilliseconds;
+      _log('browser trust request gate priming begin reason=$reason');
+      await _primeWebViewCookies(reason: reason);
+      final requestTrusted = await _isRequestGateTrusted();
+      _completeRequestGate(requestGate, requestTrusted);
+      _log(
+        'browser trust request gate ready reason=$reason '
+        'trusted=$requestTrusted elapsedMs=${stopwatch.elapsedMilliseconds} '
+        'gateElapsedMs=${stopwatch.elapsedMilliseconds - gateStartedAt}',
+        level: requestTrusted ? 'info' : 'warning',
+      );
+    } catch (e) {
+      _completeRequestGate(requestGate, false);
+      rethrow;
+    }
+
+    final sessionStartedAt = stopwatch.elapsedMilliseconds;
+    _log(
+      'browser trust session bootstrap begin reason=$reason '
+      'force=$forceSessionSync',
+    );
     final synced = await WebViewSessionCookieRefreshService.instance
-        .ensureSynced(reason: reason, force: true);
-    _log('browser trust sync end reason=$reason synced=$synced');
+        .ensureSynced(reason: reason, force: forceSessionSync);
+    _log(
+      'browser trust session bootstrap end reason=$reason '
+      'synced=$synced elapsedMs=${stopwatch.elapsedMilliseconds} '
+      'sessionElapsedMs=${stopwatch.elapsedMilliseconds - sessionStartedAt}',
+      level: synced ? 'info' : 'warning',
+    );
+    _log(
+      'browser trust sync end reason=$reason synced=$synced '
+      'elapsedMs=${stopwatch.elapsedMilliseconds}',
+    );
     _startClearanceRefreshIfLoggedIn();
     return synced;
+  }
+
+  void _completeRequestGate(Completer<bool>? gate, bool ready) {
+    if (gate == null || gate.isCompleted) return;
+    gate.complete(ready);
   }
 
   Future<void> _primeWebViewCookies({required String reason}) async {
@@ -275,12 +403,27 @@ class BrowserTrustCoordinator {
       final tToken = await _jar.getTToken();
       if (tToken != null && tToken.isNotEmpty) {
         _log('startup WebView session bootstrap begin reason=$reason');
-        await WebViewSessionCookieRefreshService.instance.runOnController(
-          c,
-          reason: '$reason:startup_webview',
-          pluginCandidates: _preload.pluginCandidatesSync,
-        );
+        final bootstrapped = await WebViewSessionCookieRefreshService.instance
+            .runOnController(
+              c,
+              reason: '$reason:startup_webview',
+              pluginCandidates: _preload.pluginCandidatesSync,
+            );
         await _syncCookiesFromController(c);
+        final runtimeDetails = await _jar.getCookieDiagnosticsForRequest(
+          Uri.parse(AppConstants.baseUrl),
+          names: const {'_rt'},
+        );
+        final hasRuntimeCookie = runtimeDetails.any(
+          (cookie) => (cookie['valueLength'] as int? ?? 0) > 0,
+        );
+        if (bootstrapped && hasRuntimeCookie) {
+          WebViewSessionCookieRefreshService.instance.markSynced(
+            reason: '$reason:startup_webview',
+            tToken: await _jar.getTToken(),
+            hasRuntimeCookie: hasRuntimeCookie,
+          );
+        }
         _log('startup WebView session bootstrap end reason=$reason');
       } else {
         _log('startup WebView session bootstrap skipped: no _t');
@@ -379,9 +522,44 @@ class BrowserTrustCoordinator {
     return trusted;
   }
 
-  void _startClearanceRefreshIfLoggedIn() {
+  Future<bool> _isRequestGateTrusted() async {
+    if (!_jar.isInitialized) {
+      await _jar.initialize();
+    }
+    final clearance = await _jar.getCanonicalCookie('cf_clearance');
+    if (clearance == null || clearance.value.isEmpty) {
+      _log('request gate trust check: untrusted, no cf_clearance');
+      return false;
+    }
+    if (!CookieJarService.matchesAppHost(clearance.domain)) {
+      _log(
+        'request gate trust check: untrusted, domain=${clearance.domain}',
+        level: 'warning',
+      );
+      return false;
+    }
+    final expiresAt = clearance.expiresAt?.toLocal();
+    if (expiresAt == null) {
+      _log('request gate trust check: trusted, no expires');
+      return true;
+    }
+    final ttl = expiresAt.difference(DateTime.now());
+    final trusted = ttl >= _requestClearanceMinTtl;
+    _log(
+      'request gate trust check: trusted=$trusted ttl=${ttl.inSeconds}s '
+      'expires=${expiresAt.toIso8601String()}',
+      level: trusted ? 'info' : 'warning',
+    );
+    return trusted;
+  }
+
+  void _startClearanceRefreshIfLoggedIn({String reason = 'preload_logged_in'}) {
     if (_preload.currentUserSync != null) {
-      startClearanceRefresh(reason: 'preload_logged_in');
+      final pendingReason = _pendingClearanceRefreshReason;
+      _pendingClearanceRefreshReason = null;
+      _startClearanceRefreshNow(
+        reason: pendingReason == null ? reason : '$reason:$pendingReason',
+      );
     } else {
       _log('skip cf_clearance refresh: not logged in');
     }

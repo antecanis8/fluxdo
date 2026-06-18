@@ -48,10 +48,7 @@ mixin _LoginMixin on _DiscourseServiceBase, _AuthMixin {
     required String password,
     String? secondFactorToken,
   }) async {
-    final data = <String, String>{
-      'login': identifier,
-      'password': password,
-    };
+    final data = <String, String>{'login': identifier, 'password': password};
     if (secondFactorToken != null && secondFactorToken.isNotEmpty) {
       data['second_factor_token'] = secondFactorToken;
       // 1=TOTP, 2=backup code, 3=security key. 第一版只支持 TOTP, backup/key
@@ -190,22 +187,31 @@ mixin _LoginMixin on _DiscourseServiceBase, _AuthMixin {
 
     await saveUsername(identifier);
     if (token.isNotEmpty) setToken(token);
+    final forceBrowserSessionSync = !WebViewSessionCookieRefreshService.instance
+        .hasFreshSyncForToken(token);
 
     var loginReadyNotified = false;
     try {
       await LoginReadyCoordinator(
-        hydrateFromHtml: PreloadedDataService().hydrateFromHtml,
-        refreshPreloadedData: PreloadedDataService().refresh,
-        notifyLoginReady: (t) {
-          loginReadyNotified = true;
-          onLoginSuccess(t);
-        },
-      ).finalize(token: token, pageHtml: null).timeout(const Duration(seconds: 8));
+            hydrateFromHtml: PreloadedDataService().hydrateFromHtml,
+            refreshPreloadedData: PreloadedDataService().refresh,
+            notifyLoginReady: (t) {
+              loginReadyNotified = true;
+              onLoginSuccess(
+                t,
+                forceBrowserSessionSync: forceBrowserSessionSync,
+              );
+            },
+          )
+          .finalize(token: token, pageHtml: null)
+          .timeout(const Duration(seconds: 8));
     } catch (e) {
       debugPrint('[DiscourseLogin] PreloadedData 收尾失败/超时: $e');
     } finally {
       // 兜底广播, 避免 UI 卡在"同步登录中"
-      if (!loginReadyNotified) onLoginSuccess(token);
+      if (!loginReadyNotified) {
+        onLoginSuccess(token, forceBrowserSessionSync: forceBrowserSessionSync);
+      }
     }
   }
 }

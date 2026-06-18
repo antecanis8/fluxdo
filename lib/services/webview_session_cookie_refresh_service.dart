@@ -38,32 +38,90 @@ class WebViewSessionCookieRefreshService {
   Future<bool>? _activeRefresh;
   DateTime? _lastAttemptAt;
   DateTime? _lastSuccessAt;
+  String? _lastSuccessToken;
 
   DateTime? get lastSuccessAt => _lastSuccessAt;
+
+  void markSynced({
+    String reason = 'external',
+    String? tToken,
+    bool? hasRuntimeCookie,
+  }) {
+    _lastSuccessAt = DateTime.now();
+    _lastSuccessToken = tToken;
+    _logEnsureEvent(
+      event: 'webview_session_sync_marked',
+      reason: reason,
+      level: 'info',
+      extra: {
+        'hasRuntimeCookie': ?hasRuntimeCookie,
+        'tokenBound': tToken != null && tToken.isNotEmpty,
+      },
+    );
+  }
+
+  bool hasFreshSyncForToken(String? tToken) {
+    final lastSuccessAt = _lastSuccessAt;
+    return tToken != null &&
+        tToken.isNotEmpty &&
+        _lastSuccessToken == tToken &&
+        lastSuccessAt != null &&
+        DateTime.now().difference(lastSuccessAt) < _successTtl;
+  }
 
   /// 确保当前进程已经让 WebView 登录页面跑过一次并同步 cookie。
   Future<bool> ensureSynced({
     String reason = 'unknown',
     bool force = false,
   }) async {
+    final startedAt = DateTime.now();
+    _logEnsureEvent(
+      event: 'webview_session_sync_started',
+      reason: reason,
+      extra: {'force': force},
+    );
+
     if (!_jar.isInitialized) {
       await _jar.initialize();
     }
 
     final tToken = await _jar.getTToken();
     if (tToken == null || tToken.isEmpty) {
+      _logEnsureEvent(
+        event: 'webview_session_sync_skipped',
+        reason: reason,
+        level: 'info',
+        extra: {'skipReason': 'no_t'},
+      );
       return false;
     }
 
     final lastSuccessAt = _lastSuccessAt;
     if (!force &&
         lastSuccessAt != null &&
+        _lastSuccessToken == tToken &&
         DateTime.now().difference(lastSuccessAt) < _successTtl) {
+      _logEnsureEvent(
+        event: 'webview_session_sync_skipped',
+        reason: reason,
+        level: 'info',
+        extra: {
+          'skipReason': 'success_ttl',
+          'lastSuccessAgeMs': DateTime.now()
+              .difference(lastSuccessAt)
+              .inMilliseconds,
+        },
+      );
       return true;
     }
 
     final active = _activeRefresh;
     if (active != null) {
+      _logEnsureEvent(
+        event: 'webview_session_sync_join_active',
+        reason: reason,
+        level: 'info',
+      );
       return active;
     }
 
@@ -72,16 +130,38 @@ class WebViewSessionCookieRefreshService {
     if (!force &&
         lastAttemptAt != null &&
         now.difference(lastAttemptAt) < _attemptCooldown) {
+      _logEnsureEvent(
+        event: 'webview_session_sync_skipped',
+        reason: reason,
+        level: 'info',
+        extra: {
+          'skipReason': 'attempt_cooldown',
+          'lastAttemptAgeMs': now.difference(lastAttemptAt).inMilliseconds,
+        },
+      );
       return false;
     }
 
     _lastAttemptAt = now;
     late final Future<bool> future;
-    future = _refreshBrowserSession(reason: reason).whenComplete(() {
-      if (identical(_activeRefresh, future)) {
-        _activeRefresh = null;
-      }
-    });
+    future = _refreshBrowserSession(reason: reason)
+        .then((ok) {
+          _logEnsureEvent(
+            event: 'webview_session_sync_completed',
+            reason: reason,
+            level: ok ? 'info' : 'warning',
+            extra: {
+              'ok': ok,
+              'elapsedMs': DateTime.now().difference(startedAt).inMilliseconds,
+            },
+          );
+          return ok;
+        })
+        .whenComplete(() {
+          if (identical(_activeRefresh, future)) {
+            _activeRefresh = null;
+          }
+        });
     _activeRefresh = future;
     return future;
   }
@@ -198,6 +278,7 @@ class WebViewSessionCookieRefreshService {
       final tToken = await _jar.getTToken();
       if (tToken != null && tToken.isNotEmpty) {
         _lastSuccessAt = DateTime.now();
+        _lastSuccessToken = tToken;
         debugPrint('[WebViewSessionSync] 浏览器会话 cookie 已同步');
         return true;
       }
@@ -214,6 +295,23 @@ class WebViewSessionCookieRefreshService {
         debugPrint('[WebViewSessionSync] dispose WebView 失败: $e');
       }
     }
+  }
+
+  void _logEnsureEvent({
+    required String event,
+    required String reason,
+    String level = 'debug',
+    Map<String, dynamic>? extra,
+  }) {
+    LogWriter.instance.write({
+      'timestamp': DateTime.now().toIso8601String(),
+      'level': level,
+      'type': 'cookie_trace',
+      'event': event,
+      'message': 'WebView session sync state: $event',
+      'reason': reason,
+      ...?extra,
+    });
   }
 
   /// 记录当前主域 cookie 摘要，便于确认站点 bootstrap 产生的 HttpOnly
@@ -268,6 +366,7 @@ class WebViewSessionCookieRefreshService {
     InAppWebViewController controller, {
     String reason = 'unknown',
     List<String>? pluginCandidates,
+    Duration timeout = _bootstrapTimeout,
   }) async {
     final handlerName =
         'fluxdo_session_bootstrap_${DateTime.now().microsecondsSinceEpoch}';
@@ -298,7 +397,7 @@ class WebViewSessionCookieRefreshService {
       await _injectPluginCandidates(controller, pluginCandidates);
       final script = _bootstrapScript(handlerName);
       await controller.evaluateJavascript(source: script);
-      final result = await completer.future.timeout(_bootstrapTimeout);
+      final result = await completer.future.timeout(timeout);
       final ok = result['ok'] == true;
       final endpoint = result['endpoint']?.toString();
       final status = (result['status'] as num?)?.toInt();

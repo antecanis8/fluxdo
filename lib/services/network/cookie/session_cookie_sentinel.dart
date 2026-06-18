@@ -162,6 +162,7 @@ class SessionCookieSentinel {
     Duration? primingDuration;
     try {
       final uri = Uri.parse(url);
+      await _jar.enforceAuthCookiePolicy(reason: 'nuclear_reset');
       final jarCookies = await _jar.loadCanonicalCookiesForRequest(uri);
 
       // 1. 清空 WV: jar+WV 联合 name set 的所有 variant
@@ -704,9 +705,12 @@ class SessionCookieSentinel {
     try {
       final uri = Uri.parse(url);
       final host = uri.host.toLowerCase();
+      final isAuthCookie = CookieJarService.hostOnlyCookieNames.contains(
+        winner.name,
+      );
       String? domainToWrite;
       final winnerDomain = winner.domain;
-      if (winnerDomain != null && winnerDomain.isNotEmpty) {
+      if (!isAuthCookie && winnerDomain != null && winnerDomain.isNotEmpty) {
         final normalized =
             (winnerDomain.startsWith('.')
                     ? winnerDomain.substring(1)
@@ -722,7 +726,7 @@ class SessionCookieSentinel {
         winner.value,
         url: url,
         domain: domainToWrite,
-        path: winner.path ?? _pathDefault,
+        path: isAuthCookie ? _pathDefault : winner.path ?? _pathDefault,
         expires: winner.expiresMillis != null
             ? DateTime.fromMillisecondsSinceEpoch(
                 winner.expiresMillis!,
@@ -730,7 +734,8 @@ class SessionCookieSentinel {
               )
             : null,
         secure: winner.isSecure ?? true,
-        httpOnly: winner.isHttpOnly ?? true,
+        httpOnly: isAuthCookie ? true : winner.isHttpOnly ?? true,
+        trusted: isAuthCookie,
       );
     } catch (e) {
       debugPrint('[Sentinel] _syncWinnerToJar failed: $e');
