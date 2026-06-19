@@ -64,6 +64,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   bool _showTitle = false;
   bool _isRefreshing = false;
 
+  // 余额卡片(CDK/LDC)是否已可渲染:仅在本页首次成为活跃 tab 后置 true。
+  // 避免 IndexedStack 冷启动预构建本页时,balance card 的 watch 就触发
+  // cdk/ldc user-info 请求(撞上 cdk 子域冷启动的 CF 挑战窗口)。
+  bool _balanceEverActive = false;
+
   // 统计卡片引导
   static const String _guideKey = 'profile_stats_card_guide_shown';
   final GlobalKey _statsCardKey = GlobalKey();
@@ -75,16 +80,23 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     _scrollController = ScrollController();
     _scrollController.addListener(_onScroll);
     _rightScrollController = ScrollController();
+    // 启动即为活跃 tab(如默认进入本页)时允许立即渲染;否则等首次切入。
+    _balanceEverActive = widget.isActive;
   }
 
   @override
   void didUpdateWidget(ProfilePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     // tab 切换时 isActive 变化
-    if (widget.isActive && !oldWidget.isActive && !_guideShown) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _tryShowStatsGuide();
-      });
+    if (widget.isActive && !oldWidget.isActive) {
+      // 首次切入本页才渲染余额卡片(触发 cdk/ldc 请求),避免冷启动预构建即请求。
+      // didUpdateWidget 后 framework 会自动 rebuild,无需 setState。
+      _balanceEverActive = true;
+      if (!_guideShown) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _tryShowStatsGuide();
+        });
+      }
     }
   }
 
@@ -562,6 +574,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
   /// LDC/CDK 余额卡片（共用组件）
   Widget _buildBalanceCards() {
+    // 仅本页首次成为活跃 tab 后才渲染余额卡片;未激活时返回空,不建 Consumer、
+    // 不 watch provider,从而不触发 cdk/ldc user-info 请求。
+    if (!_balanceEverActive) return const SizedBox.shrink();
     return Consumer(
       builder: (context, ref, _) {
         final prefs = ref.watch(sharedPreferencesProvider);
