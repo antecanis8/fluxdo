@@ -394,10 +394,8 @@ class BrowserTrustCoordinator {
 
     _lastClearanceRejectedAt = null;
     _log('CF clearance obtained, force re-run bootstrap reason=$reason');
-    final retry = await WebViewSessionCookieRefreshService.instance.ensureSynced(
-      reason: '$reason:cf_recover',
-      force: true,
-    );
+    final retry = await WebViewSessionCookieRefreshService.instance
+        .ensureSynced(reason: '$reason:cf_recover', force: true);
     _log(
       'bootstrap re-run after CF: ok=${retry.ok} cfBlocked=${retry.cfBlocked} '
       'reason=$reason',
@@ -470,6 +468,7 @@ class BrowserTrustCoordinator {
       onReceivedServerTrustAuthRequest: (_, challenge) =>
           WebViewSettings.handleServerTrustAuthRequest(challenge),
       onWebViewCreated: (createdController) {
+        WebViewSettings.applyWindowsHeadlessMemoryTarget(createdController);
         WebViewSettings.registerJsErrorReporter(createdController);
       },
       onLoadStop: (_, _) {

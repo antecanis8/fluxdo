@@ -243,7 +243,7 @@ class CfClearanceRefreshService {
       webViewEnvironment: io.Platform.isWindows
           ? WindowsWebViewEnvironmentService.instance.environment
           : null,
-      initialSettings: WebViewSettings.headless,
+      initialSettings: WebViewSettings.headlessCf,
       initialUserScripts: WebViewSettings.compatPolyfillScripts,
       onReceivedServerTrustAuthRequest: (_, challenge) =>
           WebViewSettings.handleServerTrustAuthRequest(challenge),
@@ -255,6 +255,7 @@ class CfClearanceRefreshService {
           return;
         }
         _webViewController = controller;
+        WebViewSettings.applyWindowsHeadlessMemoryTarget(controller);
         WebViewSettings.registerJsErrorReporter(controller);
         _registerJavaScriptHandlers(controller, gen);
       },

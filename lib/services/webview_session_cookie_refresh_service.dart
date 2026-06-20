@@ -247,16 +247,13 @@ class WebViewSessionCookieRefreshService {
       webViewEnvironment: io.Platform.isWindows
           ? WindowsWebViewEnvironmentService.instance.environment
           : null,
-      initialSettings: InAppWebViewSettings(
-        javaScriptEnabled: true,
-        userAgent: AppConstants.webViewUserAgentOverride,
-        sharedCookiesEnabled: true,
-      ),
+      initialSettings: WebViewSettings.headless,
       initialUserScripts: WebViewSettings.compatPolyfillScripts,
       onReceivedServerTrustAuthRequest: (_, challenge) =>
           WebViewSettings.handleServerTrustAuthRequest(challenge),
       onWebViewCreated: (createdController) {
         controller = createdController;
+        WebViewSettings.applyWindowsHeadlessMemoryTarget(createdController);
         WebViewSettings.registerJsErrorReporter(createdController);
       },
       onLoadStop: (_, _) {

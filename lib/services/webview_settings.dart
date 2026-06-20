@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection' show UnmodifiableListView;
 import 'dart:io' show Platform;
 import 'package:flutter/gestures.dart';
@@ -47,10 +48,7 @@ class WebViewSettings {
     required InAppWebViewController? Function() getController,
   }) {
     if (!Platform.isWindows) return child;
-    return _JsonScrollListener(
-      getController: getController,
-      child: child,
-    );
+    return _JsonScrollListener(getController: getController, child: child);
   }
 
   /// Gateway 模式下 WebView 的 SSL 信任回调
@@ -71,7 +69,7 @@ class WebViewSettings {
   }
 
   /// Headless WebView 配置（后台同步用，轻量）
-  /// 用于 CsrfTokenService、WebViewHttpAdapter、CF 自动验证等
+  /// 用于 CsrfTokenService、WebViewHttpAdapter、会话 bootstrap 等
   static InAppWebViewSettings get headless => InAppWebViewSettings(
     javaScriptEnabled: true,
     sharedCookiesEnabled: true,
@@ -79,6 +77,7 @@ class WebViewSettings {
 
     // 性能优化 - 不加载不必要的资源
     blockNetworkImage: true,
+    loadsImagesAutomatically: false,
     mediaPlaybackRequiresUserGesture: true,
     allowsInlineMediaPlayback: false,
 
@@ -95,11 +94,58 @@ class WebViewSettings {
     // 其他优化
     transparentBackground: true,
     disableContextMenu: true,
+    verticalScrollBarEnabled: false,
+    horizontalScrollBarEnabled: false,
+    disableVerticalScroll: true,
+    disableHorizontalScroll: true,
     supportZoom: false,
 
     // 安全相关
     thirdPartyCookiesEnabled: true,
   );
+
+  /// Headless WebView 配置（CF/Turnstile 用）。
+  ///
+  /// CF 相关页面更看重浏览器环境接近默认行为，因此这里不禁图片、也不强制
+  /// LOAD_CACHE_ELSE_NETWORK；资源占用主要交给 WebView2 memory target 处理。
+  static InAppWebViewSettings get headlessCf => InAppWebViewSettings(
+    javaScriptEnabled: true,
+    sharedCookiesEnabled: true,
+    userAgent: AppConstants.webViewUserAgentOverride,
+
+    // 这些开关只影响 WebView 插件回调，不改变页面可见能力。
+    useShouldOverrideUrlLoading: false,
+    useShouldInterceptRequest: false,
+    useOnLoadResource: false,
+    useOnDownloadStart: false,
+
+    transparentBackground: true,
+    disableContextMenu: true,
+    verticalScrollBarEnabled: false,
+    horizontalScrollBarEnabled: false,
+    disableVerticalScroll: true,
+    disableHorizontalScroll: true,
+    supportZoom: false,
+
+    thirdPartyCookiesEnabled: true,
+  );
+
+  /// Windows WebView2 后台实例使用低内存目标。
+  ///
+  /// 该 API 只在支持 ICoreWebView2_19 的 Runtime 生效；旧 Runtime 会由插件
+  /// native 层 no-op。这里异步 fire-and-forget，避免影响 WebView 创建流程。
+  static void applyWindowsHeadlessMemoryTarget(
+    InAppWebViewController controller,
+  ) {
+    if (!Platform.isWindows) return;
+    unawaited(() async {
+      try {
+        await controller.setMemoryUsageTargetLevel(MemoryUsageTargetLevel.LOW);
+      } catch (e) {
+        debugPrint('[WebViewSettings] 设置 WebView2 低内存目标失败: $e');
+      }
+    }());
+  }
 
   /// 老 WKWebView (主要 iOS 15+) 兼容性脚本：core-js polyfill + JS 错误回传。
   /// 产物在 `assets/polyfill/compat-polyfill.js`，由 `tools/polyfill-bundle/` 子工程
@@ -288,10 +334,7 @@ class WebViewSettings {
 
 /// Windows 滚轮/触摸板事件转发 widget
 class _JsonScrollListener extends StatelessWidget {
-  const _JsonScrollListener({
-    required this.getController,
-    required this.child,
-  });
+  const _JsonScrollListener({required this.getController, required this.child});
 
   final InAppWebViewController? Function() getController;
   final Widget child;
@@ -299,9 +342,7 @@ class _JsonScrollListener extends StatelessWidget {
   void _doScroll(double dx, double dy) {
     final controller = getController();
     if (controller != null && (dx != 0 || dy != 0)) {
-      controller.evaluateJavascript(
-        source: 'window.__fluxdoScroll?.($dx,$dy)',
-      );
+      controller.evaluateJavascript(source: 'window.__fluxdoScroll?.($dx,$dy)');
     }
   }
 

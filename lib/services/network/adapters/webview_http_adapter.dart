@@ -88,6 +88,7 @@ class WebViewHttpAdapter implements HttpClientAdapter {
 
     final initCompleter = Completer<void>();
     _initCompleter = initCompleter;
+    var pageLoadCompleter = Completer<void>();
     final initWatch = Stopwatch()..start();
 
     try {
@@ -96,14 +97,13 @@ class WebViewHttpAdapter implements HttpClientAdapter {
         webViewEnvironment: Platform.isWindows
             ? WindowsWebViewEnvironmentService.instance.environment
             : null,
-        // 加载主站页面（而非 about:blank），确保 cookie store 已初始化
-        initialUrlRequest: URLRequest(url: WebUri(AppConstants.baseUrl)),
         initialSettings: WebViewSettings.headless,
         initialUserScripts: WebViewSettings.compatPolyfillScripts,
         onReceivedServerTrustAuthRequest: (_, challenge) =>
             WebViewSettings.handleServerTrustAuthRequest(challenge),
         onWebViewCreated: (controller) {
           _controller = controller;
+          WebViewSettings.applyWindowsHeadlessMemoryTarget(controller);
           WebViewSettings.registerJsErrorReporter(controller);
 
           controller.addJavaScriptHandler(
@@ -127,13 +127,14 @@ class WebViewHttpAdapter implements HttpClientAdapter {
         },
         onLoadStop: (controller, url) {
           debugPrint('[WebViewAdapter] Page loaded: $url');
-          if (!initCompleter.isCompleted) {
-            initCompleter.complete();
+          if (!pageLoadCompleter.isCompleted) {
+            pageLoadCompleter.complete();
           }
         },
         onReceivedError: (controller, request, error) {
-          if (request.isForMainFrame != false && !initCompleter.isCompleted) {
-            initCompleter.completeError(
+          if (request.isForMainFrame != false &&
+              !pageLoadCompleter.isCompleted) {
+            pageLoadCompleter.completeError(
               StateError(
                 'WebView init failed: ${error.type} ${error.description}',
               ),
@@ -143,21 +144,49 @@ class WebViewHttpAdapter implements HttpClientAdapter {
       );
 
       await _headlessWebView!.run();
+      final controller = _headlessWebView!.webViewController;
+      if (controller == null) {
+        throw StateError('Headless WebView controller is null');
+      }
 
-      await initCompleter.future.timeout(
+      pageLoadCompleter = Completer<void>();
+      if (Platform.isWindows) {
+        await controller.loadUrl(
+          urlRequest: URLRequest(url: WebUri(_windowsBootstrapUrl)),
+        );
+      } else {
+        await controller.loadData(
+          data: _bootstrapHtml,
+          baseUrl: WebUri(AppConstants.baseUrl),
+          mimeType: 'text/html',
+          encoding: 'utf-8',
+        );
+      }
+
+      await pageLoadCompleter.future.timeout(
         const Duration(seconds: 30),
         onTimeout: () {
           throw TimeoutException('WebView init timeout');
         },
       );
 
+      if (Platform.isWindows) {
+        await _writeBootstrapHtml(controller);
+      }
+
       _isInitialized = true;
+      if (!initCompleter.isCompleted) {
+        initCompleter.complete();
+      }
       initWatch.stop();
       debugPrint(
         '[WebViewAdapter] Initialized (${initWatch.elapsedMilliseconds}ms)',
       );
     } catch (e) {
       debugPrint('[WebViewAdapter] Init failed: $e');
+      if (!initCompleter.isCompleted) {
+        initCompleter.completeError(e);
+      }
       close(force: true);
       rethrow;
     } finally {
@@ -166,6 +195,24 @@ class WebViewHttpAdapter implements HttpClientAdapter {
       }
     }
   }
+
+  Future<void> _writeBootstrapHtml(InAppWebViewController controller) async {
+    final html = jsonEncode(_bootstrapHtml);
+    await controller.evaluateJavascript(
+      source:
+          '''
+document.open();
+document.write($html);
+document.close();
+''',
+    );
+  }
+
+  String get _windowsBootstrapUrl => '${AppConstants.baseUrl}/robots.txt';
+
+  String get _bootstrapHtml =>
+      '<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
+      '<body></body></html>';
 
   @override
   Future<ResponseBody> fetch(
