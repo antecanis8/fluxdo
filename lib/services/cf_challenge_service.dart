@@ -2094,6 +2094,33 @@ class _CfChallengePageState extends State<CfChallengePage> {
     );
   }
 
+  Size _resolveBackgroundWebViewSize(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final safeWidth = math.max(
+      1.0,
+      media.size.width - media.padding.horizontal,
+    );
+    final safeHeight = math.max(
+      1.0,
+      media.size.height - media.padding.vertical,
+    );
+    final isCompact = safeWidth < 640;
+    final horizontalMargin = isCompact ? 12.0 : 24.0;
+    final verticalMargin = isCompact ? 12.0 : 24.0;
+    final panelWidth = math.max(
+      1.0,
+      math.min(720.0, safeWidth - horizontalMargin * 2),
+    );
+    final availableHeight = math.max(360.0, safeHeight - verticalMargin * 2);
+    final targetHeight = isCompact
+        ? availableHeight * 0.88
+        : math.min(720.0, availableHeight);
+    final minHeight = math.min(460.0, availableHeight);
+    final panelHeight = math.max(minHeight, targetHeight);
+    const chromeHeight = 46.0; // header 44 + progress bar 2
+    return Size(panelWidth, math.max(1.0, panelHeight - chromeHeight));
+  }
+
   // ---------------------------------------------------------------------------
   // build
   // ---------------------------------------------------------------------------
@@ -2102,6 +2129,9 @@ class _CfChallengePageState extends State<CfChallengePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final showUi = !_isBackground;
+    final backgroundWebViewSize = showUi
+        ? Size.zero
+        : _resolveBackgroundWebViewSize(context);
 
     return Stack(
       children: [
@@ -2109,10 +2139,10 @@ class _CfChallengePageState extends State<CfChallengePage> {
           Positioned.fill(child: _buildContextualVerifyLayer(theme))
         else
           Positioned(
-            left: -100000,
-            top: -100000,
-            width: 1,
-            height: 1,
+            left: -backgroundWebViewSize.width - 64,
+            top: -backgroundWebViewSize.height - 64,
+            width: backgroundWebViewSize.width,
+            height: backgroundWebViewSize.height,
             child: _buildChallengeWebView(showUi: false),
           ),
 
