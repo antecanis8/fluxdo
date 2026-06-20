@@ -877,13 +877,33 @@ class _PopupMenuState<T> extends State<_PopupMenu<T>> {
       ),
     );
 
-    // pivot 按按钮在屏幕上的位置动态算:菜单从最贴近按钮的那个角生长/收回,
+    // pivot 按按钮在屏幕上的位置动态算:菜单从最贴近按钮的位置生长/收回,
     // 所以右上角的按钮就从右上角长出来,方向随位置变化,而不是固定某点。
     final RelativeRect pos = widget.route.position;
     final double originX = pos.right < pos.left
         ? 1.0
         : (pos.left < pos.right ? -1.0 : 0.0);
-    final double originY = pos.bottom < pos.top ? 1.0 : -1.0;
+    double originY = pos.bottom < pos.top ? 1.0 : -1.0;
+    final Rect? animationAnchorRect = widget.route.animationAnchorRect;
+    if (animationAnchorRect != null) {
+      final EdgeInsets menuPadding =
+          (widget.route.menuPadding ??
+                  popupMenuTheme.menuPadding ??
+                  const EdgeInsetsDirectional.symmetric(vertical: 8.0))
+              .resolve(Directionality.of(context));
+      final double estimatedMenuHeight =
+          widget.route.items.fold<double>(
+            menuPadding.vertical,
+            (height, item) => height + item.height,
+          ) +
+          (hasHeader ? 52.0 : 0.0);
+      if (estimatedMenuHeight > 0) {
+        originY =
+            ((animationAnchorRect.center.dy - pos.top) / estimatedMenuHeight) *
+                2 -
+            1;
+      }
+    }
     final Alignment originAlign = Alignment(originX, originY);
     widget.route.menuPivotAlignment = originAlign;
 
@@ -1055,6 +1075,7 @@ class _SwipeDismissiblePopupRoute<T> extends PopupRoute<T>
     with _MenuChainRoute<T> {
   _SwipeDismissiblePopupRoute({
     required this.position,
+    this.animationAnchorRect,
     required this.items,
     required this.itemKeys,
     this.initialValue,
@@ -1076,6 +1097,7 @@ class _SwipeDismissiblePopupRoute<T> extends PopupRoute<T>
        super(traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop);
 
   final RelativeRect position;
+  final Rect? animationAnchorRect;
   final List<PopupMenuEntry<T>> items;
   final List<GlobalKey> itemKeys;
   final List<Size?> itemSizes;
@@ -1267,6 +1289,8 @@ Future<T?> showSwipeDismissibleMenu<T>({
   required BuildContext context,
   required RelativeRect position,
   required List<PopupMenuEntry<T>> items,
+  NavigatorState? navigator,
+  Rect? animationAnchorRect,
   T? initialValue,
   double? elevation,
   Color? shadowColor,
@@ -1300,13 +1324,12 @@ Future<T?> showSwipeDismissibleMenu<T>({
     items.length,
     (int index) => GlobalKey(),
   );
-  final NavigatorState navigator = Navigator.of(
-    context,
-    rootNavigator: useRootNavigator,
-  );
-  return navigator.push(
+  final NavigatorState targetNavigator =
+      navigator ?? Navigator.of(context, rootNavigator: useRootNavigator);
+  return targetNavigator.push(
     _SwipeDismissiblePopupRoute<T>(
       position: position,
+      animationAnchorRect: animationAnchorRect,
       items: items,
       itemKeys: menuItemKeys,
       initialValue: initialValue,
@@ -1320,7 +1343,7 @@ Future<T?> showSwipeDismissibleMenu<T>({
       color: color,
       capturedThemes: InheritedTheme.capture(
         from: context,
-        to: navigator.context,
+        to: targetNavigator.context,
       ),
       constraints: constraints,
       clipBehavior: clipBehavior,
@@ -1369,6 +1392,7 @@ class SwipeDismissiblePopupMenuButton<T> extends StatefulWidget {
     this.style,
     this.requestFocus,
     this.headerActions,
+    this.menuNavigatorKey,
   }) : assert(
          !(child != null && icon != null),
          'You can only pass [child] or [icon], not both.',
@@ -1409,6 +1433,12 @@ class SwipeDismissiblePopupMenuButton<T> extends StatefulWidget {
   /// 不为空时会在 items 上方多渲染一行圆形按钮，点击后菜单自动关闭并触发回调。
   final List<MenuQuickAction>? headerActions;
 
+  /// 可选：把菜单 route 推到指定 Navigator 上。
+  ///
+  /// 用于按钮位于手动 OverlayEntry 内的场景：菜单仍复用同一套路由与样式，
+  /// 但可以由后插入/更高层的 Navigator 承载，避免被外层 OverlayEntry 盖住。
+  final GlobalKey<NavigatorState>? menuNavigatorKey;
+
   @override
   State<SwipeDismissiblePopupMenuButton<T>> createState() =>
       _SwipeDismissiblePopupMenuButtonState<T>();
@@ -1418,12 +1448,11 @@ class _SwipeDismissiblePopupMenuButtonState<T>
     extends State<SwipeDismissiblePopupMenuButton<T>> {
   void showButtonMenu() {
     final RenderBox button = context.findRenderObject()! as RenderBox;
+    final NavigatorState navigator =
+        widget.menuNavigatorKey?.currentState ??
+        Navigator.of(context, rootNavigator: widget.useRootNavigator);
     final RenderBox overlay =
-        Navigator.of(
-              context,
-              rootNavigator: widget.useRootNavigator,
-            ).overlay!.context.findRenderObject()!
-            as RenderBox;
+        navigator.overlay!.context.findRenderObject()! as RenderBox;
 
     final PopupMenuThemeData popupMenuTheme = PopupMenuTheme.of(context);
     final PopupMenuPosition popupMenuPosition =
@@ -1440,13 +1469,17 @@ class _SwipeDismissiblePopupMenuButtonState<T>
         }
     }
 
+    final Rect buttonRect = Rect.fromPoints(
+      overlay.globalToLocal(button.localToGlobal(Offset.zero)),
+      overlay.globalToLocal(button.localToGlobal(button.size.bottomRight(Offset.zero))),
+    );
+
     final RelativeRect position = RelativeRect.fromRect(
       Rect.fromPoints(
-        button.localToGlobal(offset, ancestor: overlay),
-        button.localToGlobal(
+        overlay.globalToLocal(button.localToGlobal(offset)),
+        overlay.globalToLocal(button.localToGlobal(
           button.size.bottomRight(Offset.zero) + offset,
-          ancestor: overlay,
-        ),
+        )),
       ),
       Offset.zero & overlay.size,
     );
@@ -1469,6 +1502,8 @@ class _SwipeDismissiblePopupMenuButtonState<T>
       color: widget.color,
       constraints: widget.constraints,
       clipBehavior: widget.clipBehavior,
+      navigator: navigator,
+      animationAnchorRect: buttonRect,
       useRootNavigator: widget.useRootNavigator,
       popUpAnimationStyle: widget.popUpAnimationStyle,
       routeSettings: widget.routeSettings,

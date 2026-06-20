@@ -77,6 +77,8 @@ void showUserCard({
   }
 
   final anchorContext = context;
+  final menuNavigatorKey =
+      PlatformUtils.isDesktop ? GlobalKey<NavigatorState>() : null;
 
   Widget buildCard(VoidCallback onClose) => _UserCardContent(
         username: username,
@@ -90,6 +92,7 @@ void showUserCard({
         flairBgColor: flairBgColor,
         flairColor: flairColor,
         anchorContext: anchorContext,
+        menuNavigatorKey: menuNavigatorKey,
         onClose: onClose,
       );
 
@@ -140,6 +143,9 @@ void showUserCard({
               ),
             ),
             positioned,
+            Positioned.fill(
+              child: _UserCardMenuNavigator(navigatorKey: menuNavigatorKey!),
+            ),
           ],
         );
       },
@@ -166,6 +172,111 @@ void showUserCard({
         );
       },
     );
+  }
+}
+
+class _UserCardMenuNavigator extends StatelessWidget {
+  final GlobalKey<NavigatorState> navigatorKey;
+
+  const _UserCardMenuNavigator({required this.navigatorKey});
+
+  static const _hostRouteName = '_userCardMenuHost';
+
+  @override
+  Widget build(BuildContext context) {
+    return _UserCardMenuNavigatorHost(navigatorKey: navigatorKey);
+  }
+}
+
+class _UserCardMenuNavigatorHost extends StatefulWidget {
+  final GlobalKey<NavigatorState> navigatorKey;
+
+  const _UserCardMenuNavigatorHost({required this.navigatorKey});
+
+  @override
+  State<_UserCardMenuNavigatorHost> createState() =>
+      _UserCardMenuNavigatorHostState();
+}
+
+class _UserCardMenuNavigatorHostState extends State<_UserCardMenuNavigatorHost> {
+  late final _UserCardMenuNavigatorObserver _observer =
+      _UserCardMenuNavigatorObserver(_setMenuActive);
+  bool _menuActive = false;
+
+  void _setMenuActive(bool active) {
+    if (_menuActive == active || !mounted) return;
+    setState(() => _menuActive = active);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: !_menuActive,
+      child: Navigator(
+        key: widget.navigatorKey,
+        clipBehavior: Clip.none,
+        observers: [_observer],
+        onGenerateRoute: (_) => PageRouteBuilder<void>(
+          settings:
+              const RouteSettings(name: _UserCardMenuNavigator._hostRouteName),
+          opaque: false,
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, _, _) => const SizedBox.expand(),
+        ),
+      ),
+    );
+  }
+}
+
+class _UserCardMenuNavigatorObserver extends NavigatorObserver {
+  final ValueChanged<bool> onActiveChanged;
+  int _menuRouteCount = 0;
+
+  _UserCardMenuNavigatorObserver(this.onActiveChanged);
+
+  bool _isMenuRoute(Route<dynamic>? route) =>
+      route?.settings.name != _UserCardMenuNavigator._hostRouteName;
+
+  void _notify() => onActiveChanged(_menuRouteCount > 0);
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_isMenuRoute(route)) {
+      _menuRouteCount += 1;
+      _notify();
+    }
+    super.didPush(route, previousRoute);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_isMenuRoute(route) && _menuRouteCount > 0) {
+      _menuRouteCount -= 1;
+      _notify();
+    }
+    super.didPop(route, previousRoute);
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_isMenuRoute(route) && _menuRouteCount > 0) {
+      _menuRouteCount -= 1;
+      _notify();
+    }
+    super.didRemove(route, previousRoute);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    if (_isMenuRoute(oldRoute) && _menuRouteCount > 0) {
+      _menuRouteCount -= 1;
+    }
+    if (_isMenuRoute(newRoute)) {
+      _menuRouteCount += 1;
+    }
+    _notify();
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
   }
 }
 
@@ -318,6 +429,7 @@ class _UserCardContent extends ConsumerStatefulWidget {
   final String? flairBgColor;
   final String? flairColor;
   final BuildContext anchorContext;
+  final GlobalKey<NavigatorState>? menuNavigatorKey;
   final VoidCallback onClose;
 
   const _UserCardContent({
@@ -332,6 +444,7 @@ class _UserCardContent extends ConsumerStatefulWidget {
     required this.flairBgColor,
     required this.flairColor,
     required this.anchorContext,
+    required this.menuNavigatorKey,
     required this.onClose,
   });
 
@@ -924,6 +1037,7 @@ class _UserCardContentState extends ConsumerState<_UserCardContent> {
         minimumSize: const Size(48, 40),
       ),
       onSelected: _setNotificationLevel,
+      menuNavigatorKey: widget.menuNavigatorKey,
       itemBuilder: (context) => [
         if (canMute)
           _notificationLevel == 'mute'
