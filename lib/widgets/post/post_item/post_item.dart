@@ -39,9 +39,11 @@ class PostItem extends ConsumerStatefulWidget {
   final bool useReplyDialog;
   final String? topicTitle;
   final bool isPrivateMessageTopic;
+  final bool isPmWithNonHumanUser;
   final VoidCallback? onShowPostDetail;
   final bool hideRepliesButton;
   final String? highlightBoostUsername;
+
   /// OP 帖专属插槽: 仅在 postNumber == 1 时生效, 透传给 PostFooterSection
   final Widget? opTopSlot;
 
@@ -70,6 +72,7 @@ class PostItem extends ConsumerStatefulWidget {
     this.useReplyDialog = false,
     this.topicTitle,
     this.isPrivateMessageTopic = false,
+    this.isPmWithNonHumanUser = false,
     this.onShowPostDetail,
     this.hideRepliesButton = false,
     this.opTopSlot,
@@ -85,6 +88,7 @@ class _PostItemState extends ConsumerState<PostItem> {
   late bool _acceptedAnswer;
   final GlobalKey<PostFooterSectionState> _footerKey =
       GlobalKey<PostFooterSectionState>();
+
   /// 帖子级临时关闭弹幕。null = 跟随全局偏好；false = 临时关
   bool? _danmakuOverride;
 
@@ -124,8 +128,8 @@ class _PostItemState extends ConsumerState<PostItem> {
     final danmakuTrackCount = boostCount <= 1
         ? 1
         : boostCount <= 4
-            ? 2
-            : 3;
+        ? 2
+        : 3;
     const danmakuTrackHeight = 36.0;
 
     final isModeratorAction = post.postType == PostTypes.moderatorAction;
@@ -156,8 +160,8 @@ class _PostItemState extends ConsumerState<PostItem> {
                 danmakuActive: showDanmakuToggle ? showDanmaku : null,
                 onToggleDanmaku: showDanmakuToggle
                     ? () => setState(() {
-                          _danmakuOverride = !showDanmaku;
-                        })
+                        _danmakuOverride = !showDanmaku;
+                      })
                     : null,
               ),
             ),
@@ -225,20 +229,24 @@ class _PostItemState extends ConsumerState<PostItem> {
                                 _lastSelectedContent = content;
                                 _lastCodeSelectionContext = content == null
                                     ? null
-                                    : CodeSelectionContextTracker.instance.current;
+                                    : CodeSelectionContextTracker
+                                          .instance
+                                          .current;
                               }
                             : null,
                         contextMenuBuilder: widget.onQuoteSelection != null
                             ? (context, state) {
-                                final items = QuoteSelectionHelper.buildMenuItems(
-                                  baseItems: state.contextMenuButtonItems,
-                                  plainText: _lastSelectedContent?.plainText,
-                                  post: post,
-                                  hideToolbar: state.hideToolbar,
-                                  topicId: widget.topicId,
-                                  onQuoteSelection: widget.onQuoteSelection,
-                                  codeContext: _lastCodeSelectionContext,
-                                );
+                                final items =
+                                    QuoteSelectionHelper.buildMenuItems(
+                                      baseItems: state.contextMenuButtonItems,
+                                      plainText:
+                                          _lastSelectedContent?.plainText,
+                                      post: post,
+                                      hideToolbar: state.hideToolbar,
+                                      topicId: widget.topicId,
+                                      onQuoteSelection: widget.onQuoteSelection,
+                                      codeContext: _lastCodeSelectionContext,
+                                    );
                                 return AdaptiveTextSelectionToolbar.buttonItems(
                                   anchors: state.contextMenuAnchors,
                                   buttonItems: items,
@@ -353,6 +361,7 @@ class _PostItemState extends ConsumerState<PostItem> {
                 useReplyDialog: widget.useReplyDialog,
                 topicTitle: widget.topicTitle,
                 isPrivateMessageTopic: widget.isPrivateMessageTopic,
+                isPmWithNonHumanUser: widget.isPmWithNonHumanUser,
                 onShowPostDetail: widget.onShowPostDetail,
                 hideRepliesButton: widget.hideRepliesButton,
                 opTopSlot: widget.opTopSlot,

@@ -192,7 +192,8 @@ class TopicPoster {
       userId: userId,
       description: json['description'] as String? ?? '',
       extras: json['extras'] as String? ?? '',
-      user: userMap[userId] ??
+      user:
+          userMap[userId] ??
           // 从本地缓存反序列化时没有 userMap；fallback 到嵌入在
           // poster entry 里的用户字段（normalizeBookmarkListEntry 写入）。
           (json['_avatar_template'] != null || json['_username'] != null
@@ -320,9 +321,7 @@ class Topic {
       highestPostNumber: json['highest_post_number'] as int? ?? 0,
       bookmarkedPostNumber: json['_bookmarked_post_number'] as int?,
       bookmarkId: json['_bookmark_id'] as int?,
-      bookmarkName: normalizeBookmarkName(
-        json['_bookmark_name'] as String?,
-      ),
+      bookmarkName: normalizeBookmarkName(json['_bookmark_name'] as String?),
       bookmarkReminderAt: TimeUtils.parseUtcTime(
         json['_bookmark_reminder_at'] as String?,
       ),
@@ -647,15 +646,20 @@ class Post {
   // 编辑历史（post revisions）相关字段
   /// 帖子原始版本号（staff 可见），每次编辑递增；首次发布为 1。
   final int version;
+
   /// 对非 staff 暴露的版本号；当 staff 隐藏 revision 时会小于 [version]。
   /// 缺省回退到 [version]。
   final int? publicVersion;
+
   /// 当前用户能否查看编辑历史（含权限计算）。
   final bool canViewEditHistory;
+
   /// 是否为 wiki 帖（任何人可编辑）。
   final bool wiki;
+
   /// wiki 帖首楼最后编辑时间（仅 wiki && first post && 有 revisions 时返回）。
   final DateTime? lastWikiEdit;
+
   /// 最近一次编辑原因。
   final String? editReason;
 
@@ -764,9 +768,7 @@ class Post {
       canWiki: json['can_wiki'] as bool? ?? false,
       bookmarked: json['bookmarked'] as bool? ?? false,
       bookmarkId: json['bookmark_id'] as int?,
-      bookmarkName: normalizeBookmarkName(
-        json['_bookmark_name'] as String?,
-      ),
+      bookmarkName: normalizeBookmarkName(json['_bookmark_name'] as String?),
       bookmarkReminderAt: json['_bookmark_reminder_at'] != null
           ? TimeUtils.parseUtcTime(json['_bookmark_reminder_at'] as String?)
           : null,
@@ -1094,8 +1096,9 @@ class Post {
       publicVersion: publicVersion ?? this.publicVersion,
       canViewEditHistory: canViewEditHistory ?? this.canViewEditHistory,
       wiki: wiki ?? this.wiki,
-      lastWikiEdit:
-          clearLastWikiEdit ? null : (lastWikiEdit ?? this.lastWikiEdit),
+      lastWikiEdit: clearLastWikiEdit
+          ? null
+          : (lastWikiEdit ?? this.lastWikiEdit),
       editReason: clearEditReason ? null : (editReason ?? this.editReason),
     );
   }
@@ -1405,7 +1408,11 @@ class AcceptedAnswer {
 
   /// 用于从 PostStream 中的 Post 反查并构造一个 AcceptedAnswer
   /// (本地接受答案后用,后端 payload 来不及返回时的兜底)
-  factory AcceptedAnswer.fromPost(Post post, {String? accepterUsername, String? accepterName}) {
+  factory AcceptedAnswer.fromPost(
+    Post post, {
+    String? accepterUsername,
+    String? accepterName,
+  }) {
     return AcceptedAnswer(
       postNumber: post.postNumber,
       username: post.username,
@@ -1426,7 +1433,9 @@ class AcceptedAnswer {
     final pn = json['post_number'] as int;
     DateTime? createdAt;
     if (postStream != null) {
-      final post = postStream.posts.where((p) => p.postNumber == pn).firstOrNull;
+      final post = postStream.posts
+          .where((p) => p.postNumber == pn)
+          .firstOrNull;
       createdAt = post?.createdAt;
     }
     return AcceptedAnswer(
@@ -1485,6 +1494,7 @@ class TopicDetail {
 
   // 话题类型
   final String archetype; // 'regular' 或 'private_message'
+  final bool pmWithNonHumanUser; // 私信对象是否包含非真人用户
 
   // 话题权限（来自 details）
   final bool canEdit; // 是否可以编辑话题元数据（标题、分类、标签）
@@ -1537,6 +1547,7 @@ class TopicDetail {
     this.hasSummary = false,
     this.notificationLevel = TopicNotificationLevel.regular,
     this.archetype = 'regular',
+    this.pmWithNonHumanUser = false,
     this.canEdit = false,
     this.bookmarked = false,
     this.bookmarkId,
@@ -1567,7 +1578,9 @@ class TopicDetail {
     if (acceptedAnswersList is List) {
       for (final a in acceptedAnswersList) {
         if (a is Map<String, dynamic> && a['post_number'] is int) {
-          acceptedAnswers.add(AcceptedAnswer.fromJson(a, postStream: postStream));
+          acceptedAnswers.add(
+            AcceptedAnswer.fromJson(a, postStream: postStream),
+          );
         }
       }
     } else if (acceptedAnswerData is Map<String, dynamic> &&
@@ -1603,9 +1616,7 @@ class TopicDetail {
             topicBookmarked = true;
             topicBookmarkId = b['id'] as int?;
             topicBookmarkNameFieldSeen = b.containsKey('name');
-            topicBookmarkName = normalizeBookmarkName(
-              b['name'] as String?,
-            );
+            topicBookmarkName = normalizeBookmarkName(b['name'] as String?);
             topicBookmarkReminderAt = TimeUtils.parseUtcTime(
               b['reminder_at'] as String?,
             );
@@ -1693,7 +1704,8 @@ class TopicDetail {
       sharedIssueVisible: json['shared_issue_visible'] as bool? ?? false,
       canCreateSharedIssue: json['can_create_shared_issue'] as bool? ?? false,
       sharedIssueCount: json['shared_issue_count'] as int? ?? 0,
-      userCreatedSharedIssue: json['user_created_shared_issue'] as bool? ?? false,
+      userCreatedSharedIssue:
+          json['user_created_shared_issue'] as bool? ?? false,
       createdBy:
           (json['details'] as Map<String, dynamic>?)?['created_by'] != null
           ? TopicUser.fromJson(
@@ -1704,6 +1716,7 @@ class TopicDetail {
       hasCachedSummary: json['has_cached_summary'] as bool? ?? false,
       hasSummary: json['has_summary'] as bool? ?? false,
       archetype: json['archetype'] as String? ?? 'regular',
+      pmWithNonHumanUser: json['pm_with_non_human_user'] as bool? ?? false,
       notificationLevel: TopicNotificationLevel.fromValue(
         (json['details'] as Map<String, dynamic>?)?['notification_level']
             as int?,
@@ -1748,6 +1761,7 @@ class TopicDetail {
     bool? hasSummary,
     TopicNotificationLevel? notificationLevel,
     String? archetype,
+    bool? pmWithNonHumanUser,
     bool? canEdit,
     bool? bookmarked,
     int? bookmarkId,
@@ -1787,6 +1801,7 @@ class TopicDetail {
       hasSummary: hasSummary ?? this.hasSummary,
       notificationLevel: notificationLevel ?? this.notificationLevel,
       archetype: archetype ?? this.archetype,
+      pmWithNonHumanUser: pmWithNonHumanUser ?? this.pmWithNonHumanUser,
       canEdit: canEdit ?? this.canEdit,
       bookmarked: bookmarked ?? this.bookmarked,
       bookmarkId: clearBookmarkId ? null : (bookmarkId ?? this.bookmarkId),

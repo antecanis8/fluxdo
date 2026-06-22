@@ -51,6 +51,7 @@ class PostFooterSection extends ConsumerStatefulWidget {
   final bool useReplyDialog;
   final String? topicTitle;
   final bool isPrivateMessageTopic;
+  final bool isPmWithNonHumanUser;
 
   /// 隐藏回复列表按钮（弹框内使用时不需要展示）
   final bool hideRepliesButton;
@@ -95,6 +96,7 @@ class PostFooterSection extends ConsumerStatefulWidget {
     this.useReplyDialog = false,
     this.topicTitle,
     this.isPrivateMessageTopic = false,
+    this.isPmWithNonHumanUser = false,
     this.hideRepliesButton = false,
     this.onShowPostDetail,
     this.postDetailLabel,

@@ -570,6 +570,7 @@ class _NestedPostCardState extends ConsumerState<NestedPostCard> {
           onSolutionChanged: widget.onSolutionChanged,
           topicTitle: widget.detail.title,
           isPrivateMessageTopic: widget.detail.isPrivateMessage,
+          isPmWithNonHumanUser: widget.detail.pmWithNonHumanUser,
           hideRepliesButton: true,
         ),
       ],

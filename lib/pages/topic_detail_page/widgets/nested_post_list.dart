@@ -151,6 +151,9 @@ class _NestedPostListState extends ConsumerState<NestedPostList> {
                 onRefreshPost: widget.onRefreshPost,
                 onJumpToPost: widget.onJumpToPost,
                 onSolutionChanged: widget.onSolutionChanged,
+                topicTitle: widget.detail.title,
+                isPrivateMessageTopic: widget.detail.isPrivateMessage,
+                isPmWithNonHumanUser: widget.detail.pmWithNonHumanUser,
                 hideRepliesButton: true,
                 opTopSlot: widget.detail.sharedIssueVisible
                     ? SharedIssueButton(
@@ -200,10 +203,16 @@ class _NestedPostListState extends ConsumerState<NestedPostList> {
           if (ns.newRootPostIds.isNotEmpty)
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 child: FilledButton.tonal(
-                  onPressed: () => ref.read(nestedTopicProvider(p).notifier).loadNewRoots(),
-                  child: Text(context.l10n.nested_newReplies(ns.newRootPostIds.length)),
+                  onPressed: () =>
+                      ref.read(nestedTopicProvider(p).notifier).loadNewRoots(),
+                  child: Text(
+                    context.l10n.nested_newReplies(ns.newRootPostIds.length),
+                  ),
                 ),
               ),
             ),

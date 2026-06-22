@@ -28,6 +28,7 @@ void showPostRepliesSheet({
   required int topicId,
   String? topicTitle,
   bool isPrivateMessageTopic = false,
+  bool isPmWithNonHumanUser = false,
   void Function(int postNumber)? onJumpToPost,
 }) {
   showAppBottomSheet(
@@ -39,6 +40,7 @@ void showPostRepliesSheet({
       topicId: topicId,
       topicTitle: topicTitle,
       isPrivateMessageTopic: isPrivateMessageTopic,
+      isPmWithNonHumanUser: isPmWithNonHumanUser,
       onJumpToPost: onJumpToPost,
     ),
   );
@@ -49,6 +51,7 @@ class _PostRepliesSheetContent extends ConsumerStatefulWidget {
   final int topicId;
   final String? topicTitle;
   final bool isPrivateMessageTopic;
+  final bool isPmWithNonHumanUser;
   final void Function(int postNumber)? onJumpToPost;
 
   const _PostRepliesSheetContent({
@@ -56,6 +59,7 @@ class _PostRepliesSheetContent extends ConsumerStatefulWidget {
     required this.topicId,
     this.topicTitle,
     this.isPrivateMessageTopic = false,
+    this.isPmWithNonHumanUser = false,
     this.onJumpToPost,
   });
 
@@ -217,6 +221,7 @@ class _PostRepliesSheetContentState
       initialContent: initialContent,
       topicTitle: widget.topicTitle,
       isPrivateMessageTopic: widget.isPrivateMessageTopic,
+      isPmWithNonHumanUser: widget.isPmWithNonHumanUser,
     );
   }
 
@@ -266,6 +271,7 @@ class _PostRepliesSheetContentState
       initialContent: quote,
       topicTitle: widget.topicTitle,
       isPrivateMessageTopic: widget.isPrivateMessageTopic,
+      isPmWithNonHumanUser: widget.isPmWithNonHumanUser,
     );
   }
 
@@ -517,6 +523,7 @@ class _PostRepliesSheetContentState
             onSolutionChanged: null,
             topicTitle: widget.topicTitle,
             isPrivateMessageTopic: widget.isPrivateMessageTopic,
+            isPmWithNonHumanUser: widget.isPmWithNonHumanUser,
             hideRepliesButton: true,
             onShowPostDetail: () => _jumpToPost(post.postNumber),
             postDetailLabel: S.current.topic_jump,

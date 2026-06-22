@@ -61,6 +61,7 @@ extension _UserActions on _TopicDetailPageState {
       topicTitle: detail?.title,
       preloadedDraftFuture: preloadedDraftFuture,
       isPrivateMessageTopic: detail?.isPrivateMessage ?? false,
+      isPmWithNonHumanUser: detail?.pmWithNonHumanUser ?? false,
       shortcutSurface: const ShortcutSurfaceConfig(
         id: ShortcutSurfaceIds.replyComposer,
         triggerAction: ShortcutAction.replyTopic,
@@ -116,6 +117,8 @@ extension _UserActions on _TopicDetailPageState {
       topicId: widget.topicId,
       post: post,
       categoryId: detail?.categoryId,
+      isPrivateMessageTopic: detail?.isPrivateMessage ?? false,
+      isPmWithNonHumanUser: detail?.pmWithNonHumanUser ?? false,
       shortcutSurface: const ShortcutSurfaceConfig(
         id: ShortcutSurfaceIds.editComposer,
         triggerAction: ShortcutAction.editPost,
@@ -553,6 +556,7 @@ extension _UserActions on _TopicDetailPageState {
       topicTitle: detail?.title,
       preloadedDraftFuture: preloadedDraftFuture,
       isPrivateMessageTopic: detail?.isPrivateMessage ?? false,
+      isPmWithNonHumanUser: detail?.pmWithNonHumanUser ?? false,
       shortcutSurface: const ShortcutSurfaceConfig(
         id: ShortcutSurfaceIds.replyComposer,
         triggerAction: ShortcutAction.quotePost,
@@ -914,6 +918,7 @@ extension _UserActions on _TopicDetailPageState {
       topicTitle: detail?.title,
       preloadedDraftFuture: preloadedDraftFuture,
       isPrivateMessageTopic: detail?.isPrivateMessage ?? false,
+      isPmWithNonHumanUser: detail?.pmWithNonHumanUser ?? false,
       shortcutSurface: const ShortcutSurfaceConfig(
         id: ShortcutSurfaceIds.replyComposer,
         triggerAction: ShortcutAction.quotePost,
@@ -966,6 +971,7 @@ extension _UserActions on _TopicDetailPageState {
       topicTitle: detail?.title,
       preloadedDraftFuture: preloadedDraftFuture,
       isPrivateMessageTopic: detail?.isPrivateMessage ?? false,
+      isPmWithNonHumanUser: detail?.pmWithNonHumanUser ?? false,
       shortcutSurface: const ShortcutSurfaceConfig(
         id: ShortcutSurfaceIds.replyComposer,
         triggerAction: ShortcutAction.quotePost,

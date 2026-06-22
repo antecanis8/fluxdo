@@ -37,6 +37,7 @@ extension _PostFooterReplyActions on _PostFooterSectionState {
         topicId: widget.topicId,
         topicTitle: widget.topicTitle,
         isPrivateMessageTopic: widget.isPrivateMessageTopic,
+        isPmWithNonHumanUser: widget.isPmWithNonHumanUser,
         onJumpToPost: widget.onJumpToPost,
       );
       return;

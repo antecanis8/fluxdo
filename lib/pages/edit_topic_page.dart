@@ -31,8 +31,10 @@ class EditTopicResult {
 
 class EditTopicPage extends ConsumerStatefulWidget {
   final TopicDetail topicDetail;
+
   /// 首贴，可选。如果为 null 会尝试通过 firstPostId 加载
   final Post? firstPost;
+
   /// 首贴 ID，用于在 firstPost 为 null 时加载首贴
   final int? firstPostId;
 
@@ -90,7 +92,8 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
     _titleController.text = widget.topicDetail.title;
     _originalTitle = widget.topicDetail.title;
     _originalCategoryId = widget.topicDetail.categoryId;
-    _originalTags = widget.topicDetail.tags?.map((tag) => tag.name).toList() ?? [];
+    _originalTags =
+        widget.topicDetail.tags?.map((tag) => tag.name).toList() ?? [];
     _selectedTags = List.from(_originalTags!);
 
     // 初始化首贴
@@ -101,7 +104,9 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
 
     // 非私信时加载分类数据
     if (!_isPrivateMessage) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadSelectedCategory());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _loadSelectedCategory(),
+      );
     }
   }
 
@@ -109,7 +114,9 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
     ref.listenManual(categoriesProvider, (previous, next) {
       next.whenData((categories) {
         if (!mounted) return;
-        final category = categories.where((c) => c.id == widget.topicDetail.categoryId).firstOrNull;
+        final category = categories
+            .where((c) => c.id == widget.topicDetail.categoryId)
+            .firstOrNull;
         if (category != null && _selectedCategory == null) {
           setState(() => _selectedCategory = category);
         }
@@ -123,7 +130,9 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
     try {
       // 如果没有首贴但有首贴 ID，先加载首贴
       if (_firstPost == null && widget.firstPostId != null) {
-        final postStream = await service.getPosts(widget.topicDetail.id, [widget.firstPostId!]);
+        final postStream = await service.getPosts(widget.topicDetail.id, [
+          widget.firstPostId!,
+        ]);
         if (mounted && postStream.posts.isNotEmpty) {
           setState(() => _firstPost = postStream.posts.first);
         }
@@ -145,7 +154,11 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
       }
     } catch (e) {
       if (mounted) {
-        ToastService.showError(S.current.editTopic_loadContentFailed(e.toString().replaceAll('Exception: ', '')));
+        ToastService.showError(
+          S.current.editTopic_loadContentFailed(
+            e.toString().replaceAll('Exception: ', ''),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoadingContent = false);
@@ -171,9 +184,17 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
 
   void _togglePreview() {
     if (_showPreview) {
-      _pageController.animateToPage(0, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      _pageController.animateToPage(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
     } else {
-      _pageController.animateToPage(1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      _pageController.animateToPage(
+        1,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
       FocusScope.of(context).unfocus();
     }
   }
@@ -190,7 +211,9 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
 
     // 手动验证内容
     if (_canEditContent) {
-      final minContentLength = _isPrivateMessage
+      final minContentLength = widget.topicDetail.pmWithNonHumanUser
+          ? 1
+          : _isPrivateMessage
           ? (ref.read(minPmPostLengthProvider).value ?? 10)
           : (ref.read(minFirstPostLengthProvider).value ?? 20);
       final contentText = _contentController.text.trim();
@@ -201,7 +224,9 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
       }
       if (contentText.length < minContentLength) {
         if (_showPreview) _togglePreview();
-        ToastService.showInfo(S.current.createTopic_minContentLength(minContentLength));
+        ToastService.showInfo(
+          S.current.createTopic_minContentLength(minContentLength),
+        );
         return;
       }
     }
@@ -220,7 +245,9 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
         _selectedCategory!.minimumRequiredTags > 0 &&
         _selectedTags.length < _selectedCategory!.minimumRequiredTags) {
       if (_showPreview) _togglePreview();
-      ToastService.showInfo(S.current.createTopic_minTags(_selectedCategory!.minimumRequiredTags));
+      ToastService.showInfo(
+        S.current.createTopic_minTags(_selectedCategory!.minimumRequiredTags),
+      );
       return;
     }
 
@@ -234,11 +261,13 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
       // 检测话题元数据变化（仅当有权限编辑元数据时）
       final titleChanged = _canEditMetadata && newTitle != _originalTitle;
       // 私信不支持分类和标签
-      final categoryChanged = _canEditMetadata &&
+      final categoryChanged =
+          _canEditMetadata &&
           !_isPrivateMessage &&
           _selectedCategory != null &&
           _selectedCategory!.id != _originalCategoryId;
-      final tagsChanged = _canEditMetadata &&
+      final tagsChanged =
+          _canEditMetadata &&
           !_isPrivateMessage &&
           !_listEquals(_selectedTags, _originalTags ?? []);
       // 检测内容变化（仅当有权限编辑内容时）
@@ -266,12 +295,14 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
       if (!mounted) return;
 
       // 返回编辑结果
-      Navigator.of(context).pop(EditTopicResult(
-        title: titleChanged ? newTitle : null,
-        categoryId: categoryChanged ? _selectedCategory!.id : null,
-        tags: tagsChanged ? _selectedTags : null,
-        updatedFirstPost: updatedPost,
-      ));
+      Navigator.of(context).pop(
+        EditTopicResult(
+          title: titleChanged ? newTitle : null,
+          categoryId: categoryChanged ? _selectedCategory!.id : null,
+          tags: tagsChanged ? _selectedTags : null,
+          updatedFirstPost: updatedPost,
+        ),
+      );
     } on DioException catch (_) {
       // 网络错误已由 ErrorInterceptor 处理
     } catch (e, s) {
@@ -312,13 +343,19 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
       child: Scaffold(
         resizeToAvoidBottomInset: false,
         appBar: AppBar(
-          title: Text(_isPrivateMessage ? context.l10n.editTopic_editPm : context.l10n.editTopic_editTopic),
+          title: Text(
+            _isPrivateMessage
+                ? context.l10n.editTopic_editPm
+                : context.l10n.editTopic_editTopic,
+          ),
           scrolledUnderElevation: 0,
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 16),
               child: FilledButton(
-                onPressed: (_isSubmitting || _isLoadingContent) ? null : _submit,
+                onPressed: (_isSubmitting || _isLoadingContent)
+                    ? null
+                    : _submit,
                 style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -327,7 +364,10 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : Text(context.l10n.common_save),
               ),
@@ -337,7 +377,13 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
         body: _isPrivateMessage
             ? _buildBody(theme, [], canTagTopics, tagsAsync, minTitleLength)
             : categoriesAsync.when(
-                data: (categories) => _buildBody(theme, categories, canTagTopics, tagsAsync, minTitleLength),
+                data: (categories) => _buildBody(
+                  theme,
+                  categories,
+                  canTagTopics,
+                  tagsAsync,
+                  minTitleLength,
+                ),
                 loading: () => const Center(child: LoadingSpinner()),
                 error: (err, stack) => ErrorView(
                   error: err,
@@ -349,7 +395,13 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
     );
   }
 
-  Widget _buildBody(ThemeData theme, List<Category> categories, bool canTagTopics, AsyncValue<List<String>> tagsAsync, int minTitleLength) {
+  Widget _buildBody(
+    ThemeData theme,
+    List<Category> categories,
+    bool canTagTopics,
+    AsyncValue<List<String>> tagsAsync,
+    int minTitleLength,
+  ) {
     if (_isLoadingContent) {
       return const Center(child: LoadingSpinner());
     }
@@ -366,7 +418,9 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
             decoration: InputDecoration(
               hintText: context.l10n.createTopic_titleHint,
               hintStyle: TextStyle(
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.5,
+                ),
                 fontWeight: FontWeight.normal,
               ),
               border: InputBorder.none,
@@ -376,16 +430,30 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w900,
               letterSpacing: -0.5,
-              color: _canEditMetadata ? null : theme.colorScheme.onSurfaceVariant,
+              color: _canEditMetadata
+                  ? null
+                  : theme.colorScheme.onSurfaceVariant,
             ),
             maxLines: null,
             maxLength: 200,
-            buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
-            validator: _canEditMetadata ? (value) {
-              if (value == null || value.trim().isEmpty) return context.l10n.createTopic_enterTitle;
-              if (value.trim().length < minTitleLength) return context.l10n.createTopic_minTitleLength(minTitleLength);
-              return null;
-            } : null,
+            buildCounter:
+                (
+                  context, {
+                  required currentLength,
+                  required isFocused,
+                  maxLength,
+                }) => null,
+            validator: _canEditMetadata
+                ? (value) {
+                    if (value == null || value.trim().isEmpty)
+                      return context.l10n.createTopic_enterTitle;
+                    if (value.trim().length < minTitleLength)
+                      return context.l10n.createTopic_minTitleLength(
+                        minTitleLength,
+                      );
+                    return null;
+                  }
+                : null,
             onTap: () {
               _editorKey.currentState?.closeEmojiPanel();
             },
@@ -414,7 +482,8 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
                           selectedCategory: _selectedCategory,
                           selectedTags: _selectedTags,
                           allTags: tags,
-                          onTagsChanged: (newTags) => setState(() => _selectedTags = newTags),
+                          onTagsChanged: (newTags) =>
+                              setState(() => _selectedTags = newTags),
                         ),
                         loading: () => const SizedBox.shrink(),
                         error: (e, s) => const SizedBox.shrink(),
@@ -426,7 +495,10 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
             ),
 
           const SizedBox(height: 20),
-          Divider(height: 1, color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
+          Divider(
+            height: 1,
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+          ),
         ],
       );
     }
@@ -476,9 +548,7 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
                           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              buildMetadataSection(),
-                            ],
+                            children: [buildMetadataSection()],
                           ),
                         ),
                       ),
@@ -511,11 +581,13 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
                           onEmojiPanelChanged: (show) {
                             setState(() => _showEmojiPanel = show);
                           },
-                          mentionDataSource: (term) => ref.read(discourseServiceProvider).searchUsers(
-                            term: term,
-                            categoryId: _selectedCategory?.id,
-                            includeGroups: !_isPrivateMessage,
-                          ),
+                          mentionDataSource: (term) => ref
+                              .read(discourseServiceProvider)
+                              .searchUsers(
+                                term: term,
+                                categoryId: _selectedCategory?.id,
+                                includeGroups: !_isPrivateMessage,
+                              ),
                         ),
                       ),
                     ],
@@ -523,12 +595,19 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
 
                   // Page 1: 预览模式
                   SingleChildScrollView(
-                    padding: EdgeInsets.fromLTRB(24, 24, 24, MediaQuery.paddingOf(context).bottom + 80),
+                    padding: EdgeInsets.fromLTRB(
+                      24,
+                      24,
+                      24,
+                      MediaQuery.paddingOf(context).bottom + 80,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _titleController.text.isEmpty ? context.l10n.createTopic_noTitle : _titleController.text,
+                          _titleController.text.isEmpty
+                              ? context.l10n.createTopic_noTitle
+                              : _titleController.text,
                           style: theme.textTheme.headlineSmall?.copyWith(
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.5,
@@ -556,7 +635,9 @@ class _EditTopicPageState extends ConsumerState<EditTopicPage> {
                         if (_contentController.text.isEmpty)
                           Text(
                             context.l10n.createTopic_noContent,
-                            style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           )
                         else
                           MarkdownBody(data: _contentController.text),

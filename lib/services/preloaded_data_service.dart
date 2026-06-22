@@ -219,6 +219,13 @@ class PreloadedDataService {
   /// 获取回复内容最小长度
   Future<int> getMinPostLength() async {
     await _ensureLoaded();
+    final premiumValue = _currentUser?['premium_min_post_length'];
+    if (premiumValue is int && premiumValue > 0) return premiumValue;
+    if (premiumValue is String) {
+      final parsed = int.tryParse(premiumValue);
+      if (parsed != null && parsed > 0) return parsed;
+    }
+
     final value = _siteSettings?['min_post_length'];
     if (value is int) return value;
     if (value is String) return int.tryParse(value) ?? 8;

@@ -188,8 +188,10 @@ class LongPostFooterSegment extends ConsumerWidget {
   final bool useReplyDialog;
   final String? topicTitle;
   final bool isPrivateMessageTopic;
+  final bool isPmWithNonHumanUser;
   final VoidCallback? onShowPostDetail;
   final String? highlightBoostUsername;
+
   /// OP 帖专属插槽: 仅在 postNumber == 1 时透传给 PostFooterSection
   final Widget? opTopSlot;
 
@@ -212,6 +214,7 @@ class LongPostFooterSegment extends ConsumerWidget {
     this.useReplyDialog = false,
     this.topicTitle,
     this.isPrivateMessageTopic = false,
+    this.isPmWithNonHumanUser = false,
     this.onShowPostDetail,
     this.opTopSlot,
   });
@@ -276,6 +279,7 @@ class LongPostFooterSegment extends ConsumerWidget {
               useReplyDialog: useReplyDialog,
               topicTitle: topicTitle,
               isPrivateMessageTopic: isPrivateMessageTopic,
+              isPmWithNonHumanUser: isPmWithNonHumanUser,
               onShowPostDetail: onShowPostDetail,
               opTopSlot: opTopSlot,
             ),

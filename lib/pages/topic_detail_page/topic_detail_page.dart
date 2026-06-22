@@ -1751,6 +1751,7 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
                               initialContent: '$imageMarkdown\n',
                               topicTitle: detail.title,
                               isPrivateMessageTopic: detail.isPrivateMessage,
+                              isPmWithNonHumanUser: detail.pmWithNonHumanUser,
                             );
                           },
                   ),
@@ -1791,6 +1792,7 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
             initialContent: '$imageMarkdown\n',
             topicTitle: detail.title,
             isPrivateMessageTopic: detail.isPrivateMessage,
+            isPmWithNonHumanUser: detail.pmWithNonHumanUser,
           );
         },
       ),
@@ -2140,6 +2142,7 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage>
                     topicId: widget.topicId,
                     topicTitle: detail.title,
                     isPrivateMessageTopic: detail.isPrivateMessage,
+                    isPmWithNonHumanUser: detail.pmWithNonHumanUser,
                     onJumpToPost: _scrollToPost,
                   ),
                 );

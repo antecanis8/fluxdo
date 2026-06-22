@@ -760,6 +760,7 @@ class _TopicPostListState extends State<TopicPostList> {
           useReplyDialog: useReplyDialog,
           topicTitle: detail.title,
           isPrivateMessageTopic: detail.isPrivateMessage,
+          isPmWithNonHumanUser: detail.pmWithNonHumanUser,
           onShowPostDetail: widget.onShowPostDetail != null
               ? () => widget.onShowPostDetail!(post)
               : null,
@@ -813,6 +814,7 @@ class _TopicPostListState extends State<TopicPostList> {
           useReplyDialog: useReplyDialog,
           topicTitle: detail.title,
           isPrivateMessageTopic: detail.isPrivateMessage,
+          isPmWithNonHumanUser: detail.pmWithNonHumanUser,
           onShowPostDetail: widget.onShowPostDetail != null
               ? () => widget.onShowPostDetail!(post)
               : null,
