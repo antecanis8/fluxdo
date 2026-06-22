@@ -42,6 +42,7 @@
   },
   "dohDetail_dnsCacheRefreshedSimple": "DNS cache force refreshed",
   "dohDetail_dnsCacheSection": "DNS Cache",
+  "dohDetail_dnsRecords": "DNS Records",
   "dohDetail_dohAddress": "DoH Address",
   "dohDetail_dohAddressCopied": "DoH address copied",
   "dohDetail_echSameAsDnsDesc": "Use DNS resolver to query ECH configuration",
@@ -60,7 +61,31 @@
   "dohDetail_ipv6PreferDesc": "Try IPv6 first, fallback to IPv4 on failure",
   "dohDetail_localDnsCache": "Shared Local DNS Cache",
   "dohDetail_noServers": "No servers",
+  "dohDetail_noDnsRecords": "No DNS cache records",
   "dohDetail_processing": "Processing",
+  "dohDetail_recordCopied": "DNS record copied",
+  "dohDetail_recordNoValue": "No record value",
+  "dohDetail_recordTypeEch": "ECH Config",
+  "dohDetail_recordTypeEchNegative": "No ECH",
+  "dohDetail_recordTypeIp": "IP Record",
+  "dohDetail_recordTypePreferredIp": "Preferred IP",
+  "dohDetail_recordTypeUnknown": "DNS Record",
+  "dohDetail_searchHosts": "Search hosts",
+  "dohDetail_hostsCount": "{count} hosts in total",
+  "@dohDetail_hostsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dohDetail_hostsSearchEmpty": "No matching hosts",
+  "dohDetail_echAvailable": "ECH ready",
+  "dohDetail_echUnavailable": "No ECH",
+  "dohDetail_stickyIp": "Sticky IP",
+  "dohDetail_ipAddresses": "IP addresses",
+  "dohDetail_echConfig": "ECH config",
+  "dohDetail_ttl": "TTL",
   "dohDetail_refreshDnsCacheFailed": "Failed to force refresh DNS cache: {error}",
   "@dohDetail_refreshDnsCacheFailed": {
     "placeholders": {
@@ -79,6 +104,7 @@
   "dohDetail_testingSpeed": "Testing...",
   "dohDetail_title": "DOH Detail Settings",
   "dohDetail_urlMustHttps": "Address must start with https://",
+  "dohDetail_viewDnsRecords": "View Records",
   "dohSettings_certAllDone": "All Steps Completed",
   "dohSettings_certDialogDesc": "HTTPS interception requires installing and trusting a CA certificate, each device generates a unique certificate",
   "dohSettings_certDialogTitle": "CA Certificate Installation",

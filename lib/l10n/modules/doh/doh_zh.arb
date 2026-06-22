@@ -42,6 +42,7 @@
   },
   "dohDetail_dnsCacheRefreshedSimple": "DNS 缓存已强制刷新",
   "dohDetail_dnsCacheSection": "DNS 缓存",
+  "dohDetail_dnsRecords": "DNS 记录",
   "dohDetail_dohAddress": "DoH 地址",
   "dohDetail_dohAddressCopied": "已复制 DoH 地址",
   "dohDetail_echSameAsDnsDesc": "使用 DNS 解析服务器查询 ECH 配置",
@@ -60,7 +61,31 @@
   "dohDetail_ipv6PreferDesc": "优先尝试 IPv6，失败自动回落 IPv4",
   "dohDetail_localDnsCache": "共享本地 DNS 缓存",
   "dohDetail_noServers": "暂无服务器",
+  "dohDetail_noDnsRecords": "暂无 DNS 缓存记录",
   "dohDetail_processing": "处理中",
+  "dohDetail_recordCopied": "DNS 记录已复制",
+  "dohDetail_recordNoValue": "无记录值",
+  "dohDetail_recordTypeEch": "ECH 配置",
+  "dohDetail_recordTypeEchNegative": "无 ECH",
+  "dohDetail_recordTypeIp": "IP 记录",
+  "dohDetail_recordTypePreferredIp": "优选 IP",
+  "dohDetail_recordTypeUnknown": "DNS 记录",
+  "dohDetail_searchHosts": "搜索域名",
+  "dohDetail_hostsCount": "共 {count} 个域名",
+  "@dohDetail_hostsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dohDetail_hostsSearchEmpty": "没有匹配的域名",
+  "dohDetail_echAvailable": "ECH 可用",
+  "dohDetail_echUnavailable": "无 ECH",
+  "dohDetail_stickyIp": "粘性 IP",
+  "dohDetail_ipAddresses": "IP 地址",
+  "dohDetail_echConfig": "ECH 配置",
+  "dohDetail_ttl": "TTL",
   "dohDetail_refreshDnsCacheFailed": "强制刷新 DNS 缓存失败: {error}",
   "@dohDetail_refreshDnsCacheFailed": {
     "placeholders": {
@@ -79,6 +104,7 @@
   "dohDetail_testingSpeed": "测速中",
   "dohDetail_title": "DOH 详细设置",
   "dohDetail_urlMustHttps": "地址必须以 https:// 开头",
+  "dohDetail_viewDnsRecords": "查看记录",
   "dohSettings_certAllDone": "已完成所有步骤",
   "dohSettings_certDialogDesc": "HTTPS 拦截需要安装并信任 CA 证书，每台设备生成唯一证书",
   "dohSettings_certDialogTitle": "CA 证书安装",

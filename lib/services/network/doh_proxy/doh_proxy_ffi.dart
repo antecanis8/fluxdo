@@ -21,6 +21,123 @@ class DohHostLookupResult {
   bool get hasData => ips.isNotEmpty || (echConfig?.isNotEmpty ?? false);
 }
 
+class DohDnsCacheStats {
+  const DohDnsCacheStats({
+    required this.resolverCount,
+    required this.hostCount,
+    required this.ipCount,
+    required this.echCount,
+    required this.echNegativeCount,
+    required this.ipRttCount,
+    required this.preferredIpCount,
+    required this.totalEntries,
+    this.dartEntryCount = 0,
+  });
+
+  const DohDnsCacheStats.empty()
+    : resolverCount = 0,
+      hostCount = 0,
+      ipCount = 0,
+      echCount = 0,
+      echNegativeCount = 0,
+      ipRttCount = 0,
+      preferredIpCount = 0,
+      totalEntries = 0,
+      dartEntryCount = 0;
+
+  final int resolverCount;
+  final int hostCount;
+  final int ipCount;
+  final int echCount;
+  final int echNegativeCount;
+  final int ipRttCount;
+  final int preferredIpCount;
+  final int totalEntries;
+  final int dartEntryCount;
+
+  int get rustVisibleHostEntries {
+    final fallbackCount = ipCount + echCount + echNegativeCount;
+    return hostCount > 0 ? hostCount : fallbackCount;
+  }
+
+  int get visibleHostEntries => rustVisibleHostEntries > dartEntryCount
+      ? rustVisibleHostEntries
+      : dartEntryCount;
+
+  DohDnsCacheStats copyWith({
+    int? resolverCount,
+    int? hostCount,
+    int? ipCount,
+    int? echCount,
+    int? echNegativeCount,
+    int? ipRttCount,
+    int? preferredIpCount,
+    int? totalEntries,
+    int? dartEntryCount,
+  }) {
+    return DohDnsCacheStats(
+      resolverCount: resolverCount ?? this.resolverCount,
+      hostCount: hostCount ?? this.hostCount,
+      ipCount: ipCount ?? this.ipCount,
+      echCount: echCount ?? this.echCount,
+      echNegativeCount: echNegativeCount ?? this.echNegativeCount,
+      ipRttCount: ipRttCount ?? this.ipRttCount,
+      preferredIpCount: preferredIpCount ?? this.preferredIpCount,
+      totalEntries: totalEntries ?? this.totalEntries,
+      dartEntryCount: dartEntryCount ?? this.dartEntryCount,
+    );
+  }
+
+  factory DohDnsCacheStats.fromJson(Map<String, dynamic> json) {
+    return DohDnsCacheStats(
+      resolverCount: (json['resolver_count'] as num?)?.toInt() ?? 0,
+      hostCount: (json['host_count'] as num?)?.toInt() ?? 0,
+      ipCount: (json['ip_count'] as num?)?.toInt() ?? 0,
+      echCount: (json['ech_count'] as num?)?.toInt() ?? 0,
+      echNegativeCount: (json['ech_negative_count'] as num?)?.toInt() ?? 0,
+      ipRttCount: (json['ip_rtt_count'] as num?)?.toInt() ?? 0,
+      preferredIpCount: (json['preferred_ip_count'] as num?)?.toInt() ?? 0,
+      totalEntries: (json['total_entries'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class DohDnsCacheRecord {
+  const DohDnsCacheRecord({
+    required this.host,
+    required this.kind,
+    required this.values,
+    required this.ttl,
+  });
+
+  final String host;
+  final String kind;
+  final List<String> values;
+  final Duration ttl;
+
+  factory DohDnsCacheRecord.fromJson(Map<String, dynamic> json) {
+    final values = json['values'];
+    return DohDnsCacheRecord(
+      host: json['host']?.toString() ?? '',
+      kind: json['kind']?.toString() ?? '',
+      values: values is List
+          ? values
+                .map((value) => value.toString())
+                .where((value) => value.isNotEmpty)
+                .toList()
+          : const [],
+      ttl: Duration(milliseconds: (json['ttl_ms'] as num?)?.toInt() ?? 0),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'host': host,
+    'kind': kind,
+    'values': values,
+    'ttl_ms': ttl.inMilliseconds,
+  };
+}
+
 /// DOH Proxy FFI bindings
 ///
 /// This provides direct FFI bindings to the Rust DOH proxy library
@@ -38,15 +155,18 @@ class DohProxyFfi {
   late int Function() _dohProxyIsRunning;
   late int Function() _dohProxyGetPort;
   late void Function() _dohProxyInitLogging;
-  late Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>) _dohProxyLookupEchConfig;
-  late Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, int) _dohProxyLookupIp;
+  late Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)
+  _dohProxyLookupEchConfig;
+  late Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, int)
+  _dohProxyLookupIp;
   late Pointer<Utf8> Function(
     Pointer<Utf8>,
     Pointer<Utf8>,
     Pointer<Utf8>,
     int,
     int,
-  ) _dohProxyLookupHost;
+  )
+  _dohProxyLookupHost;
   late int Function() _dohProxyClearDnsCache;
   late int Function(
     Pointer<Utf8>,
@@ -54,13 +174,12 @@ class DohProxyFfi {
     Pointer<Utf8>,
     int,
     Pointer<Utf8>,
-  ) _dohProxyRecordHostSuccess;
-  late int Function(
-    Pointer<Utf8>,
-    Pointer<Utf8>,
-    Pointer<Utf8>,
-    int,
-  ) _dohProxyClearPreferredHostIp;
+  )
+  _dohProxyRecordHostSuccess;
+  late int Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, int)
+  _dohProxyClearPreferredHostIp;
+  Pointer<Utf8> Function()? _dohProxyDnsCacheStats;
+  Pointer<Utf8> Function()? _dohProxyDnsCacheRecords;
   Pointer<Utf8> Function()? _dohProxyGenerateCa;
   Pointer<Utf8> Function()? _dohProxyGetEmbeddedCaPem;
   late void Function(Pointer<Utf8>) _dohProxyFreeString;
@@ -76,7 +195,8 @@ class DohProxyFfi {
       // Load function pointers
       _dohProxyStartWithConfigJson = _lib!
           .lookup<NativeFunction<Int32 Function(Pointer<Utf8>)>>(
-              'doh_proxy_start_with_config_json')
+            'doh_proxy_start_with_config_json',
+          )
           .asFunction();
 
       _dohProxyStop = _lib!
@@ -96,29 +216,31 @@ class DohProxyFfi {
           .asFunction();
 
       _dohProxyLookupEchConfig = _lib!
-          .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>>(
-              'doh_proxy_lookup_ech_config')
+          .lookup<
+            NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>
+          >('doh_proxy_lookup_ech_config')
           .asFunction();
 
       _dohProxyLookupIp = _lib!
           .lookup<
-              NativeFunction<
-                  Pointer<Utf8> Function(
-                      Pointer<Utf8>,
-                      Pointer<Utf8>,
-                      Int32)>>('doh_proxy_lookup_ip')
+            NativeFunction<
+              Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, Int32)
+            >
+          >('doh_proxy_lookup_ip')
           .asFunction();
 
       _dohProxyLookupHost = _lib!
           .lookup<
-              NativeFunction<
-                  Pointer<Utf8> Function(
-                    Pointer<Utf8>,
-                    Pointer<Utf8>,
-                    Pointer<Utf8>,
-                    Int32,
-                    Int32,
-                  )>>('doh_proxy_lookup_host')
+            NativeFunction<
+              Pointer<Utf8> Function(
+                Pointer<Utf8>,
+                Pointer<Utf8>,
+                Pointer<Utf8>,
+                Int32,
+                Int32,
+              )
+            >
+          >('doh_proxy_lookup_host')
           .asFunction();
 
       _dohProxyClearDnsCache = _lib!
@@ -127,31 +249,52 @@ class DohProxyFfi {
 
       _dohProxyRecordHostSuccess = _lib!
           .lookup<
-              NativeFunction<
-                  Int32 Function(
-                    Pointer<Utf8>,
-                    Pointer<Utf8>,
-                    Pointer<Utf8>,
-                    Int32,
-                    Pointer<Utf8>,
-                  )>>('doh_proxy_record_host_success')
+            NativeFunction<
+              Int32 Function(
+                Pointer<Utf8>,
+                Pointer<Utf8>,
+                Pointer<Utf8>,
+                Int32,
+                Pointer<Utf8>,
+              )
+            >
+          >('doh_proxy_record_host_success')
           .asFunction();
 
       _dohProxyClearPreferredHostIp = _lib!
           .lookup<
-              NativeFunction<
-                  Int32 Function(
-                    Pointer<Utf8>,
-                    Pointer<Utf8>,
-                    Pointer<Utf8>,
-                    Int32,
-                  )>>('doh_proxy_clear_preferred_host_ip')
+            NativeFunction<
+              Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int32)
+            >
+          >('doh_proxy_clear_preferred_host_ip')
           .asFunction();
+
+      try {
+        _dohProxyDnsCacheStats = _lib!
+            .lookup<NativeFunction<Pointer<Utf8> Function()>>(
+              'doh_proxy_dns_cache_stats',
+            )
+            .asFunction();
+      } catch (_) {
+        _dohProxyDnsCacheStats = null;
+      }
+
+      try {
+        _dohProxyDnsCacheRecords = _lib!
+            .lookup<NativeFunction<Pointer<Utf8> Function()>>(
+              'doh_proxy_dns_cache_records',
+            )
+            .asFunction();
+      } catch (_) {
+        _dohProxyDnsCacheRecords = null;
+      }
 
       // doh_proxy_generate_ca 是新增符号，旧版本库可能没有，可选绑定
       try {
         _dohProxyGenerateCa = _lib!
-            .lookup<NativeFunction<Pointer<Utf8> Function()>>('doh_proxy_generate_ca')
+            .lookup<NativeFunction<Pointer<Utf8> Function()>>(
+              'doh_proxy_generate_ca',
+            )
             .asFunction();
       } catch (_) {
         _dohProxyGenerateCa = null;
@@ -161,14 +304,18 @@ class DohProxyFfi {
       // doh_proxy_get_embedded_ca_pem 是新增符号，可选绑定
       try {
         _dohProxyGetEmbeddedCaPem = _lib!
-            .lookup<NativeFunction<Pointer<Utf8> Function()>>('doh_proxy_get_embedded_ca_pem')
+            .lookup<NativeFunction<Pointer<Utf8> Function()>>(
+              'doh_proxy_get_embedded_ca_pem',
+            )
             .asFunction();
       } catch (_) {
         _dohProxyGetEmbeddedCaPem = null;
       }
 
       _dohProxyFreeString = _lib!
-          .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>('doh_proxy_free_string')
+          .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>(
+            'doh_proxy_free_string',
+          )
           .asFunction();
 
       _initialized = true;
@@ -209,8 +356,10 @@ class DohProxyFfi {
     final candidates = <String>[
       '$execDir/native/$libName',
       if (projectRoot != null) '$projectRoot/windows/runner/native/$libName',
-      if (projectRoot != null) '$projectRoot/core/doh_proxy/target/release/$libName',
-      if (projectRoot != null) '$projectRoot/core/doh_proxy/target/debug/$libName',
+      if (projectRoot != null)
+        '$projectRoot/core/doh_proxy/target/release/$libName',
+      if (projectRoot != null)
+        '$projectRoot/core/doh_proxy/target/debug/$libName',
       '${Directory.current.path}/windows/runner/native/$libName',
       '${Directory.current.path}/core/doh_proxy/target/release/$libName',
       '${Directory.current.path}/core/doh_proxy/target/debug/$libName',
@@ -235,8 +384,10 @@ class DohProxyFfi {
       '$execDir/../Frameworks/$libName',
       '$execDir/../Resources/native/$libName',
       if (projectRoot != null) '$projectRoot/macos/Runner/native/$libName',
-      if (projectRoot != null) '$projectRoot/core/doh_proxy/target/release/$libName',
-      if (projectRoot != null) '$projectRoot/core/doh_proxy/target/debug/$libName',
+      if (projectRoot != null)
+        '$projectRoot/core/doh_proxy/target/release/$libName',
+      if (projectRoot != null)
+        '$projectRoot/core/doh_proxy/target/debug/$libName',
       '${Directory.current.path}/macos/Runner/native/$libName',
       '${Directory.current.path}/core/doh_proxy/target/release/$libName',
       '${Directory.current.path}/core/doh_proxy/target/debug/$libName',
@@ -303,9 +454,11 @@ class DohProxyFfi {
       'timeout_secs': 30,
       if (dohServerEch != null && dohServerEch.isNotEmpty)
         'doh_server_ech': dohServerEch,
-      if (serverIp != null && serverIp.isNotEmpty)
-        'server_ip': serverIp,
-      if (upstreamHost != null && upstreamHost.isNotEmpty && upstreamPort != null && upstreamPort > 0)
+      if (serverIp != null && serverIp.isNotEmpty) 'server_ip': serverIp,
+      if (upstreamHost != null &&
+          upstreamHost.isNotEmpty &&
+          upstreamPort != null &&
+          upstreamPort > 0)
         'upstream_proxy': {
           'protocol': upstreamProtocol ?? 'http',
           'host': upstreamHost,
@@ -317,10 +470,8 @@ class DohProxyFfi {
           if (upstreamPassword != null && upstreamPassword.isNotEmpty)
             'password': upstreamPassword,
         },
-      if (caCertPem != null && caCertPem.isNotEmpty)
-        'ca_cert_pem': caCertPem,
-      if (caKeyPem != null && caKeyPem.isNotEmpty)
-        'ca_key_pem': caKeyPem,
+      if (caCertPem != null && caCertPem.isNotEmpty) 'ca_cert_pem': caCertPem,
+      if (caKeyPem != null && caKeyPem.isNotEmpty) 'ca_key_pem': caKeyPem,
     });
     final configPtr = configJson.toNativeUtf8();
     try {
@@ -399,7 +550,11 @@ class DohProxyFfi {
 
   /// Lookup IP addresses for a host via DOH A/AAAA records.
   /// Returns ordered IP strings, or null on failure.
-  List<String>? lookupIp(String host, String dohServer, {bool preferIpv6 = false}) {
+  List<String>? lookupIp(
+    String host,
+    String dohServer, {
+    bool preferIpv6 = false,
+  }) {
     if (!_initialized && !initialize()) return null;
 
     final hostPtr = host.toNativeUtf8();
@@ -438,7 +593,9 @@ class DohProxyFfi {
     final hostPtr = host.toNativeUtf8();
     final dohPtr = dohServer.toNativeUtf8();
     final hasEchPtr = dohServerEch != null && dohServerEch.isNotEmpty;
-    final echPtr = hasEchPtr ? dohServerEch.toNativeUtf8() : nullptr.cast<Utf8>();
+    final echPtr = hasEchPtr
+        ? dohServerEch.toNativeUtf8()
+        : nullptr.cast<Utf8>();
     try {
       final resultPtr = _dohProxyLookupHost(
         hostPtr,
@@ -485,6 +642,53 @@ class DohProxyFfi {
     return _dohProxyClearDnsCache() != 0;
   }
 
+  DohDnsCacheStats? dnsCacheStats() {
+    if (!_initialized && !initialize()) return null;
+    final fn = _dohProxyDnsCacheStats;
+    if (fn == null) return null;
+
+    final resultPtr = fn();
+    if (resultPtr == nullptr) return null;
+
+    final jsonStr = resultPtr.toDartString();
+    _dohProxyFreeString(resultPtr);
+
+    final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+    if (map['ok'] == true) {
+      return DohDnsCacheStats.fromJson(map);
+    }
+    debugPrint('[DOH FFI] DNS cache stats: ${map['error'] ?? 'unknown error'}');
+    return null;
+  }
+
+  List<DohDnsCacheRecord>? dnsCacheRecords() {
+    if (!_initialized && !initialize()) return null;
+    final fn = _dohProxyDnsCacheRecords;
+    if (fn == null) return null;
+
+    final resultPtr = fn();
+    if (resultPtr == nullptr) return null;
+
+    final jsonStr = resultPtr.toDartString();
+    _dohProxyFreeString(resultPtr);
+
+    final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+    if (map['ok'] == true && map['records'] is List) {
+      return (map['records'] as List)
+          .whereType<Map>()
+          .map(
+            (record) =>
+                DohDnsCacheRecord.fromJson(record.cast<String, dynamic>()),
+          )
+          .where((record) => record.host.isNotEmpty && record.kind.isNotEmpty)
+          .toList();
+    }
+    debugPrint(
+      '[DOH FFI] DNS cache records: ${map['error'] ?? 'unknown error'}',
+    );
+    return null;
+  }
+
   bool recordHostSuccess(
     String host,
     String dohServer, {
@@ -497,7 +701,9 @@ class DohProxyFfi {
     final hostPtr = host.toNativeUtf8();
     final dohPtr = dohServer.toNativeUtf8();
     final hasEchPtr = dohServerEch != null && dohServerEch.isNotEmpty;
-    final echPtr = hasEchPtr ? dohServerEch.toNativeUtf8() : nullptr.cast<Utf8>();
+    final echPtr = hasEchPtr
+        ? dohServerEch.toNativeUtf8()
+        : nullptr.cast<Utf8>();
     final ipPtr = ip.toNativeUtf8();
     try {
       return _dohProxyRecordHostSuccess(
@@ -529,7 +735,9 @@ class DohProxyFfi {
     final hostPtr = host.toNativeUtf8();
     final dohPtr = dohServer.toNativeUtf8();
     final hasEchPtr = dohServerEch != null && dohServerEch.isNotEmpty;
-    final echPtr = hasEchPtr ? dohServerEch.toNativeUtf8() : nullptr.cast<Utf8>();
+    final echPtr = hasEchPtr
+        ? dohServerEch.toNativeUtf8()
+        : nullptr.cast<Utf8>();
     try {
       return _dohProxyClearPreferredHostIp(
             hostPtr,
@@ -573,7 +781,10 @@ class DohProxyFfi {
 
   /// Check if FFI is available on this platform
   static bool get isAvailable {
-    return Platform.isAndroid || Platform.isIOS || Platform.isMacOS || Platform.isWindows;
+    return Platform.isAndroid ||
+        Platform.isIOS ||
+        Platform.isMacOS ||
+        Platform.isWindows;
   }
 
   /// 桌面平台 FFI 失败时可以回退到进程模式

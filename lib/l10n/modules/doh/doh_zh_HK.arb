@@ -42,6 +42,7 @@
   },
   "dohDetail_dnsCacheRefreshedSimple": "DNS 緩存已強制刷新",
   "dohDetail_dnsCacheSection": "DNS 緩存",
+  "dohDetail_dnsRecords": "DNS 記錄",
   "dohDetail_dohAddress": "DoH 地址",
   "dohDetail_dohAddressCopied": "已複製 DoH 地址",
   "dohDetail_echSameAsDnsDesc": "使用 DNS 解析服務器查詢 ECH 配置",
@@ -60,7 +61,31 @@
   "dohDetail_ipv6PreferDesc": "優先嚐試 IPv6，失敗自動回落 IPv4",
   "dohDetail_localDnsCache": "共享本地 DNS 緩存",
   "dohDetail_noServers": "暫無服務器",
+  "dohDetail_noDnsRecords": "暫無 DNS 緩存記錄",
   "dohDetail_processing": "處理中",
+  "dohDetail_recordCopied": "DNS 記錄已複製",
+  "dohDetail_recordNoValue": "無記錄值",
+  "dohDetail_recordTypeEch": "ECH 配置",
+  "dohDetail_recordTypeEchNegative": "無 ECH",
+  "dohDetail_recordTypeIp": "IP 記錄",
+  "dohDetail_recordTypePreferredIp": "優選 IP",
+  "dohDetail_recordTypeUnknown": "DNS 記錄",
+  "dohDetail_searchHosts": "搜尋網域",
+  "dohDetail_hostsCount": "共 {count} 個網域",
+  "@dohDetail_hostsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dohDetail_hostsSearchEmpty": "沒有匹配的網域",
+  "dohDetail_echAvailable": "ECH 可用",
+  "dohDetail_echUnavailable": "無 ECH",
+  "dohDetail_stickyIp": "黏性 IP",
+  "dohDetail_ipAddresses": "IP 位址",
+  "dohDetail_echConfig": "ECH 配置",
+  "dohDetail_ttl": "TTL",
   "dohDetail_refreshDnsCacheFailed": "強制刷新 DNS 緩存失敗: {error}",
   "@dohDetail_refreshDnsCacheFailed": {
     "placeholders": {
@@ -79,6 +104,7 @@
   "dohDetail_testingSpeed": "測速中",
   "dohDetail_title": "DOH 詳細設置",
   "dohDetail_urlMustHttps": "地址必須以 https:// 開頭",
+  "dohDetail_viewDnsRecords": "查看記錄",
   "dohSettings_certAllDone": "已完成所有步驟",
   "dohSettings_certDialogDesc": "HTTPS 攔截需要安裝並信任 CA 證書，每台裝置生成唯一證書",
   "dohSettings_certDialogTitle": "CA 證書安裝",
