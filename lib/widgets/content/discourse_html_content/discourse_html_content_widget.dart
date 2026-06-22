@@ -9,6 +9,7 @@ import '../../../models/topic.dart';
 import '../../../providers/preferences_provider.dart';
 import '../../../services/discourse/discourse_service.dart';
 import '../../../services/emoji_handler.dart';
+import '../../../services/html_parse_service.dart';
 import '../../../providers/download_provider.dart';
 import '../../../utils/discourse_url_parser.dart';
 import '../../../utils/link_launcher.dart';
@@ -197,8 +198,8 @@ class _DiscourseHtmlContentState extends ConsumerState<DiscourseHtmlContent> {
         spoilerImageUrls: widget.spoilerImageUrls,
       );
     } else {
-      // 从 HTML 提取画廊信息（包含缩略图到索引的映射和 spoiler 标记）
-      _galleryInfo = GalleryInfo.fromHtml(widget.html);
+      // 从 HTML 提取画廊信息(走 HtmlParseService 复用缓存,避免重复 DOM 解析)
+      _galleryInfo = HtmlParseService.instance.parseSync(widget.html).galleryInfo;
     }
     _widgetFactory = DiscourseWidgetFactory(
       context: context,

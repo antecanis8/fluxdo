@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show SelectedContent;
+import '../../../../services/html_parse_service.dart';
 import '../discourse_html_content_widget.dart';
-import '../image_utils.dart';
 import '../../../../models/topic.dart';
 import 'html_chunk.dart';
-import 'html_chunk_cache.dart';
 
 /// 分块 HTML 内容组件
 ///
@@ -47,31 +46,28 @@ class ChunkedHtmlContent extends StatefulWidget {
   /// 获取 HTML 分块结果，不需要分块时返回 null
   static List<HtmlChunk>? getChunks(String html) {
     if (html.length <= chunkThreshold) return null;
-
-    final cached = HtmlChunkCache.instance.get(html);
-    final chunks = cached ?? HtmlChunkCache.instance.parseSync(html);
-
-    if (chunks.length <= 1) return null;
-    return chunks;
+    final parsed = HtmlParseService.instance.parseSync(html);
+    if (parsed.chunks.length <= 1) return null;
+    return parsed.chunks;
   }
 
-  /// 提取画廊图片列表（与 GalleryInfo.fromHtml 一致，只收集 lightbox 图片）
+  /// 提取画廊图片列表(只收集 lightbox 图片)
   static List<String> extractGalleryImages(String html) {
-    return GalleryInfo.fromHtml(html).images;
+    return HtmlParseService.instance.parseSync(html).galleryInfo.images;
   }
 
   /// 预加载 HTML 分块（在获取帖子数据后调用）
   static void preload(String html) {
     if (html.length > chunkThreshold) {
-      HtmlChunkCache.instance.preload(html);
+      HtmlParseService.instance.preload(html);
     }
   }
 
   /// 批量预加载
   static void preloadAll(List<String> htmlList) {
-    for (final html in htmlList) {
-      preload(html);
-    }
+    HtmlParseService.instance.preloadAll(
+      htmlList.where((h) => h.length > chunkThreshold),
+    );
   }
 
   const ChunkedHtmlContent({
@@ -117,21 +113,17 @@ class _ChunkedHtmlContentState extends State<ChunkedHtmlContent> {
   }
 
   void _initChunks() {
-    final galleryInfo = GalleryInfo.fromHtml(widget.html);
-    _galleryImages = galleryInfo.images;
-    _spoilerImageUrls = galleryInfo.spoilerImageUrls;
-
     _useChunking = widget.enableChunking ??
         (widget.html.length > ChunkedHtmlContent.chunkThreshold);
 
-    if (_useChunking) {
-      final cached = HtmlChunkCache.instance.get(widget.html);
-      if (cached != null) {
-        _chunks = cached;
-      } else {
-        _chunks = HtmlChunkCache.instance.parseSync(widget.html);
-      }
+    // 一次解析同时拿到 chunks + gallery,避免对同一 HTML 重复解析 DOM。
+    // preload 已命中时 parseSync 直接读 cache,零成本。
+    final parsed = HtmlParseService.instance.parseSync(widget.html);
+    _galleryImages = parsed.galleryInfo.images;
+    _spoilerImageUrls = parsed.galleryInfo.spoilerImageUrls;
 
+    if (_useChunking) {
+      _chunks = parsed.chunks;
       if (_chunks!.length <= 1) {
         _useChunking = false;
         _chunks = null;

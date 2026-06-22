@@ -41,8 +41,18 @@ class HtmlChunker {
   /// 分割 HTML 为块列表
   static List<HtmlChunk> chunk(String html) {
     if (html.isEmpty) return [];
-
     final document = html_parser.parseFragment(html);
+    return chunkDocument(html: html, document: document);
+  }
+
+  /// 复用已解析的 DOM 进行分块。
+  ///
+  /// 用于与其他派生(如 GalleryInfo)共用一次 parseFragment 的场景,
+  /// 避免对同一 HTML 重复解析。[html] 仅用于单块时回退到原文本。
+  static List<HtmlChunk> chunkDocument({
+    required String html,
+    required dom.DocumentFragment document,
+  }) {
     final chunks = <HtmlChunk>[];
     final pendingNodes = <dom.Node>[];
     int pendingLength = 0;

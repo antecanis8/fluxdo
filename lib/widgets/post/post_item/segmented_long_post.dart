@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/topic.dart';
 import '../../../pages/topic_detail_page/topic_detail_page.dart';
 import '../../../providers/preferences_provider.dart';
+import '../../../services/html_parse_service.dart';
 import '../../content/collapsed_html_content.dart';
 import '../../content/discourse_html_content/chunked/chunked_html_content.dart';
 import '../../content/discourse_html_content/chunked/html_chunk.dart';
-import '../../content/discourse_html_content/image_utils.dart';
 import '../small_action_item.dart';
 import 'widgets/post_footer_section/post_footer_section.dart';
 import 'widgets/post_header_section.dart';
@@ -26,20 +26,30 @@ class LongPostRenderData {
   }) : revealedImageUrls = revealedImageUrls ?? <String>{};
 
   factory LongPostRenderData.fromHtml(String html) {
-    final chunks = ChunkedHtmlContent.getChunks(html) ?? const <HtmlChunk>[];
-    if (chunks.isEmpty) {
+    // 短帖子不分块,直接返回空 chunks 让外层走短帖路径。
+    if (html.length <= ChunkedHtmlContent.chunkThreshold) {
       return LongPostRenderData(
-        chunks: chunks,
+        chunks: const <HtmlChunk>[],
         galleryImages: const <String>[],
         spoilerImageUrls: <String>{},
       );
     }
 
-    final galleryInfo = GalleryInfo.fromHtml(html);
+    // 一次解析同时拿到 chunks + gallery,避免重复 DOM 解析。
+    // 详情页 ref.listen 中已经 preload,这里 parseSync 通常命中缓存零成本。
+    final parsed = HtmlParseService.instance.parseSync(html);
+    if (parsed.chunks.length <= 1) {
+      return LongPostRenderData(
+        chunks: const <HtmlChunk>[],
+        galleryImages: parsed.galleryInfo.images,
+        spoilerImageUrls: parsed.galleryInfo.spoilerImageUrls,
+      );
+    }
+
     return LongPostRenderData(
-      chunks: chunks,
-      galleryImages: galleryInfo.images,
-      spoilerImageUrls: galleryInfo.spoilerImageUrls,
+      chunks: parsed.chunks,
+      galleryImages: parsed.galleryInfo.images,
+      spoilerImageUrls: parsed.galleryInfo.spoilerImageUrls,
     );
   }
 }

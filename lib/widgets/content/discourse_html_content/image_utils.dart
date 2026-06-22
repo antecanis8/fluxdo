@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:html/parser.dart' as html_parser;
 import '../../../pages/image_viewer_page.dart';
 import '../../../services/discourse/discourse_service.dart';
 import '../../../utils/url_helper.dart';
 
 /// 画廊信息类
 /// 同时保存缩略图 URL（用于匹配）和原图 URL（用于显示）
+///
+/// 从 HTML 提取画廊信息请使用 [HtmlParseService.parseSync] 或
+/// [HtmlParseService.parse] 拿到 ParsedHtml,再访问 `parsed.galleryInfo`。
+/// 直接从图片列表构造请使用 [fromImages]。
 class GalleryInfo {
   /// 原图 URL 列表（用于画廊显示）
   final List<String> originalUrls;
@@ -18,10 +21,6 @@ class GalleryInfo {
 
   /// spoiler 内的图片 URL 集合（揭示前不在画廊中显示）
   final Set<String> _spoilerImageUrls;
-
-  /// 全局 LRU 缓存，避免对同一 HTML 重复执行 DOM 解析
-  static final Map<(int, int), GalleryInfo> _cache = {};
-  static const int _maxCacheSize = 100;
 
   GalleryInfo._({
     required this.originalUrls,
@@ -52,96 +51,22 @@ class GalleryInfo {
     ];
   }
 
-  /// 从 HTML 提取画廊信息
-  /// 收集所有 a.lightbox 内的图片（标记 spoiler 内的，揭示后才加入可见画廊）
-  /// 结果会被全局 LRU 缓存，相同 HTML 不会重复解析 DOM
-  static GalleryInfo fromHtml(String html) {
-    final cacheKey = (html.hashCode, html.length);
-
-    // 检查缓存
-    final cached = _cache[cacheKey];
-    if (cached != null) {
-      // LRU: 移到末尾
-      _cache.remove(cacheKey);
-      _cache[cacheKey] = cached;
-      return cached;
-    }
-
-    final List<String> originalUrls = [];
-    final List<String?> filenames = [];
-    final Map<String, int> thumbnailToIndex = {};
-    final Set<String> spoilerImageUrls = {};
-
-    final doc = html_parser.parseFragment(html);
-
-    // 查找所有 a.lightbox 元素
-    final lightboxLinks = doc.querySelectorAll('a.lightbox');
-
-    for (final anchor in lightboxLinks) {
-      // 检查是否在 spoiler 内
-      bool inSpoiler = false;
-      var parent = anchor.parent;
-      while (parent != null) {
-        if (parent.classes.contains('spoiler') ||
-            parent.classes.contains('spoiled')) {
-          inSpoiler = true;
-          break;
-        }
-        parent = parent.parent;
-      }
-
-      // 原图 URL：从 a.lightbox 的 href 获取
-      final href = anchor.attributes['href'];
-      if (href == null || href.isEmpty) continue;
-
-      var originalUrl = UrlHelper.resolveUrlWithCdn(href);
-
-      // 文件名：从 a.lightbox 的 title 获取
-      final filename = anchor.attributes['title'];
-
-      // 缩略图 URL：从内部 img 的 src 获取
-      final img = anchor.querySelector('img');
-      var thumbnailUrl = img?.attributes['src'];
-      if (thumbnailUrl != null) {
-        thumbnailUrl = UrlHelper.resolveUrlWithCdn(thumbnailUrl);
-      }
-
-      final index = originalUrls.length;
-      originalUrls.add(originalUrl);
-      filenames.add(filename);
-
-      // 标记 spoiler 内的图片
-      if (inSpoiler) {
-        spoilerImageUrls.add(originalUrl);
-      }
-
-      // 用缩略图和原图 URL 都作为索引 key
-      if (thumbnailUrl != null) {
-        thumbnailToIndex[thumbnailUrl] = index;
-        // 缩略图转原图后的 URL 也加入（处理 optimized → original 的情况）
-        final thumbOriginal =
-            DiscourseImageUtils.getOriginalUrl(thumbnailUrl);
-        if (thumbOriginal != thumbnailUrl) {
-          thumbnailToIndex[thumbOriginal] = index;
-        }
-      }
-      thumbnailToIndex[originalUrl] = index;
-    }
-
-    final result = GalleryInfo._(
+  /// 从已解析的画廊原始字段构造 GalleryInfo。
+  ///
+  /// 配合 [HtmlParseService]: isolate 内解析 DOM 抽出原始字段后,
+  /// 主 isolate 用 [UrlHelper] 解析 URL 后调用此构造。
+  static GalleryInfo fromParsedEntries({
+    required List<String> originalUrls,
+    required Map<String, int> thumbnailToIndex,
+    required List<String?> filenames,
+    required Set<String> spoilerImageUrls,
+  }) {
+    return GalleryInfo._(
       originalUrls: originalUrls,
       thumbnailToIndex: thumbnailToIndex,
       filenames: filenames,
       spoilerImageUrls: spoilerImageUrls,
     );
-
-    // 存入全局 LRU 缓存
-    while (_cache.length >= _maxCacheSize) {
-      _cache.remove(_cache.keys.first);
-    }
-    _cache[cacheKey] = result;
-
-    return result;
   }
 
   /// 从外部传入的图片列表构建 GalleryInfo
