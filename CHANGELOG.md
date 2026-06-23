@@ -2,6 +2,44 @@
 
 所有版本的变更记录。beta / rc 版本提交在 stable 发版时会折叠并入对应 stable 版本。
 
+## [0.2.21] - 2026-06-23
+
+
+### 🌟 新功能
+
+- 全局图标统一为 Material Symbols Rounded + 支持自绘 by @Lingyan000
+
+- 加载更多统一使用自定义 LoadingSpinner by @Lingyan000
+
+- 支持查看 DNS 缓存记录 by @Lingyan000
+
+- 支持 Premium 回复最小长度 by @Lingyan000
+
+- 统一底部弹框为 AppSheetScaffold(贴边/卡片双形态) by @Lingyan000
+
+
+### 🐛 修复
+
+- 修复网络适配器与 Cookie 同步稳定性 by @Lingyan000
+
+- 修复用户卡片更多菜单层级 by @Lingyan000
+
+- 修复 CF 静默验证页布局异常 by @Lingyan000
+
+
+### ⚡ 性能
+
+- 合并 HTML 解析路径,长帖渲染走 isolate 预热 by @Lingyan000
+
+- 隔离自驱动重绘 + 头像 SVG 探测短路 by @Lingyan000
+
+- 优化后台 WebView 资源占用 by @Lingyan000
+
+
+
+
+**Full Changelog**: https://github.com/lingyan000/fluxdo/compare/v0.2.20...v0.2.21
+
 ## [0.2.20] - 2026-06-19
 
 
