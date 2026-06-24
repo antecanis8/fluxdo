@@ -23,7 +23,7 @@
   "invite_restriction": "Restrict to (optional)",
   "invite_restrictionHelper": "Enter email or domain",
   "invite_restrictionHint": "name@example.com or example.com",
-  "invite_shareSubject": "Linux.do Invite Link",
+  "invite_shareSubject": "bb.zlb.ink Invite Link",
   "invite_summaryDay1": "Link can be used by 1 user and will expire in 1 day.",
   "invite_summaryExpiry": "Link can be used by 1 user and will expire in {expiry}.",
   "invite_summaryNever": "Link can be used by 1 user and will never expire.",

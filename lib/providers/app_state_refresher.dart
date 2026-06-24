@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../constants.dart';
 import 'core_providers.dart';
 import 'bookmark_name_suggestions_provider.dart';
 import 'notification_list_provider.dart';
@@ -65,8 +66,12 @@ class AppStateRefresher {
       container.read(tabTagsProvider(id).notifier).state = [];
     }
     container.read(activeCategorySlugsProvider.notifier).reset();
-    await container.read(ldcUserInfoProvider.notifier).disable();
-    await container.read(cdkUserInfoProvider.notifier).disable();
+    if (AppConstants.features.enableLdc) {
+      await container.read(ldcUserInfoProvider.notifier).disable();
+    }
+    if (AppConstants.features.enableCdk) {
+      await container.read(cdkUserInfoProvider.notifier).disable();
+    }
   }
 
   /// 刷新话题列表各 tab
@@ -116,7 +121,9 @@ class AppStateRefresher {
     (c) => c.invalidate(notificationAlertChannelProvider),
     (c) => c.invalidate(latestChannelProvider),
     (c) => c.invalidate(messageBusInitProvider),
-    (c) => c.invalidate(ldcUserInfoProvider),
-    (c) => c.invalidate(cdkUserInfoProvider),
+    if (AppConstants.features.enableLdc)
+      (c) => c.invalidate(ldcUserInfoProvider),
+    if (AppConstants.features.enableCdk)
+      (c) => c.invalidate(cdkUserInfoProvider),
   ];
 }

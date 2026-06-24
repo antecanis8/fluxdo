@@ -137,14 +137,14 @@ class DeepLinkService {
     }
 
     // 邮箱链接登录：/session/email-login/{token}
-    if (uri.host == 'linux.do' &&
+    if (AppConstants.isSiteHost(uri.host, includeSubdomains: false) &&
         uri.path.startsWith('/session/email-login/')) {
       _handleEmailLogin(context, url);
       return;
     }
 
-    // 其他 linux.do 链接：使用内置浏览器
-    if (uri.host == 'linux.do' || uri.host.endsWith('.linux.do')) {
+    // 其他站内链接：使用内置浏览器
+    if (AppConstants.isSiteHost(uri.host)) {
       WebViewPage.open(context, url);
       return;
     }
@@ -253,13 +253,6 @@ class DeepLinkService {
   static bool _canHandleUri(Uri uri) {
     if (uri.scheme == 'fluxdo') return true;
     if (uri.scheme != 'http' && uri.scheme != 'https') return false;
-    return _isLinuxDoHost(uri.host);
-  }
-
-  static bool _isLinuxDoHost(String host) {
-    final normalizedHost = host.toLowerCase();
-    return normalizedHost == 'linux.do' ||
-        normalizedHost == 'www.linux.do' ||
-        normalizedHost.endsWith('.linux.do');
+    return AppConstants.isSiteHost(uri.host);
   }
 }

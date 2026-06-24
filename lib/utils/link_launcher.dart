@@ -20,14 +20,7 @@ const _browserChannel = MethodChannel('com.github.lingyan000.fluxdo/browser');
 
 /// 检查 URL 是否属于站点内部链接（主域名或子域名）
 bool isInternalUrl(Uri uri) {
-  final baseUri = Uri.tryParse(AppConstants.baseUrl);
-  if (baseUri == null) return false;
-
-  final baseHost = baseUri.host; // 如 'linux.do'
-  final host = uri.host;
-
-  final hostMatches = host == baseHost || host.endsWith('.$baseHost');
-  if (!hostMatches) return false;
+  if (!AppConstants.isSiteHost(uri.host)) return false;
 
   return UrlHelper.samePrefix(uri.toString());
 }

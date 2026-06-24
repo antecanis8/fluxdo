@@ -37,7 +37,7 @@
   "invite_restriction": "限制為 (可選)",
   "invite_restrictionHelper": "填寫郵箱或域名",
   "invite_restrictionHint": "name@example.com 或者 example.com",
-  "invite_shareSubject": "Linux.do 邀請鏈接",
+  "invite_shareSubject": "bb.zlb.ink 邀請鏈接",
   "invite_summaryDay1": "鏈接最多可用於 1 個用户，並且將在 1 天后到期。",
   "invite_summaryExpiry": "鏈接最多可用於 1 個用户，並且將在 {expiry} 後到期。",
   "@invite_summaryExpiry": {

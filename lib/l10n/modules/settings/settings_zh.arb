@@ -50,7 +50,7 @@
   "preferences_autoFillLogin": "自动填充登录",
   "preferences_autoFillLoginDesc": "记住账号密码，登录时自动填充",
   "preferences_clipboardTopicLinkDetection": "自动识别剪贴板话题链接",
-  "preferences_clipboardTopicLinkDetectionDesc": "回到应用时检测剪贴板中的 Linux.do 话题链接，并在底部询问是否打开",
+  "preferences_clipboardTopicLinkDetectionDesc": "回到应用时检测剪贴板中的 bb.zlb.ink 话题链接，并在底部询问是否打开",
   "preferences_clipboardTopicLink_detected": "检测到剪贴板中的话题链接",
   "preferences_clipboardTopicLink_open": "打开",
   "preferences_topicFilterKeywords": "标题关键词过滤",

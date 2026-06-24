@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../constants.dart';
 import '../models/profile_stats_config.dart';
 import 'theme_provider.dart'; // sharedPreferencesProvider
 
@@ -14,17 +15,18 @@ class ProfileStatsConfigNotifier extends Notifier<ProfileStatsConfig> {
     final jsonStr = prefs.getString(_configKey);
     if (jsonStr != null) {
       try {
-        return ProfileStatsConfig.fromJsonString(jsonStr);
+        return _sanitize(ProfileStatsConfig.fromJsonString(jsonStr));
       } catch (_) {
         // 配置损坏，使用默认值
       }
     }
-    return const ProfileStatsConfig();
+    return _sanitize(const ProfileStatsConfig());
   }
 
   void update(ProfileStatsConfig config) {
-    state = config;
-    _save(config);
+    final sanitized = _sanitize(config);
+    state = sanitized;
+    _save(sanitized);
   }
 
   void setLayoutMode(StatsLayoutMode mode) {
@@ -79,6 +81,19 @@ class ProfileStatsConfigNotifier extends Notifier<ProfileStatsConfig> {
       final prefs = ref.read(sharedPreferencesProvider);
       prefs.setString(_configKey, config.toJsonString());
     });
+  }
+
+  ProfileStatsConfig _sanitize(ProfileStatsConfig config) {
+    if (AppConstants.features.enableConnectStats) {
+      return config;
+    }
+
+    return config.copyWith(
+      dataSource: StatsDataSource.summary,
+      enabledStats: config.enabledStats
+          .where((stat) => isStatCompatible(stat, StatsDataSource.summary))
+          .toList(),
+    );
   }
 }
 

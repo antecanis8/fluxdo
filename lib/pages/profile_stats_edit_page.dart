@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:app_icons/app_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../constants.dart';
 import '../models/profile_stats_config.dart';
 import '../models/user.dart';
 import '../models/connect_stats.dart';
@@ -236,9 +237,12 @@ class _DataSourceSelector extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(profileStatsConfigProvider.notifier);
+    final availableSources = AppConstants.features.enableConnectStats
+        ? StatsDataSource.values
+        : const [StatsDataSource.summary];
     return Row(
       children: [
-        for (final source in StatsDataSource.values)
+        for (final source in availableSources)
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ChoiceChip(

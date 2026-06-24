@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../constants.dart';
 import '../models/ldc_user_info.dart';
 import '../services/ldc_oauth_service.dart';
 import '../services/network/exceptions/oauth_exception.dart';
@@ -21,6 +22,7 @@ class LdcUserInfoNotifier extends AsyncNotifier<LdcUserInfo?> {
 
   @override
   Future<LdcUserInfo?> build() async {
+    if (!AppConstants.features.enableLdc) return null;
     final prefs = await SharedPreferences.getInstance();
     // 只 watch username:currentUser 对象其他字段（如 gamification_score）后到时
     // 不应触发 LDC 接口的重新请求
@@ -72,6 +74,7 @@ class LdcUserInfoNotifier extends AsyncNotifier<LdcUserInfo?> {
   }
 
   Future<LdcUserInfo?> _doFetchUserInfo() async {
+    if (!AppConstants.features.enableLdc) return null;
     final prefs = await SharedPreferences.getInstance();
     final enabled = prefs.getBool(_ldcEnabledKey) ?? false;
 

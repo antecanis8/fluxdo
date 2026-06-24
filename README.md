@@ -1,11 +1,11 @@
 # FluxDO
 
-> 一个真诚、友善、团结、专业的 [Linux.do](https://linux.do/) 第三方客户端
+> 面向 [bb.zlb.ink](https://bb.zlb.ink/) 的第三方 Discourse 客户端
 
 [![Telegram Channel](https://img.shields.io/badge/Telegram-Channel-26A5E4?logo=telegram&logoColor=white)](https://t.me/ldxfd)
 [![Telegram Group](https://img.shields.io/badge/Telegram-Group-26A5E4?logo=telegram&logoColor=white)](https://t.me/fluxdo_chat)
 
-FluxDO 是为 [Linux.do](https://linux.do/) 社区打造的现代化移动和桌面客户端，基于 Flutter 开发，致力于为用户提供流畅、优雅的论坛浏览体验。
+FluxDO 是面向 [bb.zlb.ink](https://bb.zlb.ink/) 的现代化移动和桌面客户端，基于 Flutter 开发，致力于提供流畅、优雅的 Discourse 论坛浏览体验。
 
 ## 下载
 
@@ -147,16 +147,16 @@ FluxDO 集成了基于 Rust 的 DOH (DNS over HTTPS) 代理，提供：
 
 详细文档请参考 [core/doh_proxy/README.md](https://github.com/Lingyan000/fluxdo_doh)
 
-## 关于 Linux.do
+## 关于 bb.zlb.ink
 
-[Linux.do](https://linux.do/) 是一个真诚、友善、团结、专业的技术社区，汇聚了众多热爱技术、乐于分享的开发者。FluxDO 作为第三方客户端，致力于为社区成员提供更好的移动和桌面端体验。
+[bb.zlb.ink](https://bb.zlb.ink/) 是当前默认接入的 Discourse 社区站点。FluxDO 作为第三方客户端，提供移动端和桌面端的基础访问体验。
 
-**注意**：本项目为非官方客户端，与 Linux.do 官方无直接关联。
+**注意**：本项目为非官方客户端，与站点官方无直接关联。
 
 ## 问题反馈
 
 如果您在使用过程中遇到问题或有建议，欢迎：
-- 在 [Linux.do](https://linux.do/) 论坛发帖讨论
+- 在 [bb.zlb.ink](https://bb.zlb.ink/) 论坛发帖讨论
 - 提交 [Issue](https://github.com/Lingyan000/fluxdo/issues)
 
 ## 开源协议
@@ -165,7 +165,7 @@ FluxDO 集成了基于 Rust 的 DOH (DNS over HTTPS) 代理，提供：
 
 ## 致谢
 
-感谢 [Linux.do](https://linux.do/) 社区的所有成员，是你们的真诚、友善、团结、专业让这个社区充满活力。
+感谢 [bb.zlb.ink](https://bb.zlb.ink/) 社区成员的使用与反馈。
 
 ## 相关文档
 

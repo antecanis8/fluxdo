@@ -33,7 +33,7 @@
   "preferences_autoFillLogin": "自動填充登入",
   "preferences_autoFillLoginDesc": "記住賬號密碼，登入時自動填充",
   "preferences_clipboardTopicLinkDetection": "自動偵測剪貼簿話題連結",
-  "preferences_clipboardTopicLinkDetectionDesc": "回到應用時偵測剪貼簿中的 Linux.do 話題連結，並在底部詢問是否開啟",
+  "preferences_clipboardTopicLinkDetectionDesc": "回到應用時偵測剪貼簿中的 bb.zlb.ink 話題連結，並在底部詢問是否開啟",
   "preferences_clipboardTopicLink_detected": "偵測到剪貼簿中的話題連結",
   "preferences_clipboardTopicLink_open": "開啟",
   "preferences_topicFilterKeywords": "標題關鍵字過濾",

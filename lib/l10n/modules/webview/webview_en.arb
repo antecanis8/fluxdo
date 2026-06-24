@@ -54,7 +54,7 @@
   "webviewLogin_lastLogin": "Last login: @{username}",
   "webviewLogin_loginSuccess": "Login successful!",
   "webviewLogin_savedPassword": "Saved password",
-  "webviewLogin_title": "Log in to LINUX.DO",
+  "webviewLogin_title": "Log in to bb.zlb.ink",
   "webview_addBookmark": "Bookmark this page",
   "webview_bookmarkAdded": "Bookmarked",
   "webview_bookmarkRemoved": "Bookmark removed",

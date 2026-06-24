@@ -69,16 +69,11 @@ class DioHttpClient extends http.BaseClient {
   /// 的瞬时内存可控;进度事件本来就没有 UI 在消费,无损失。
   static final _Semaphore _downloadSemaphore = _Semaphore(8);
 
-  /// 提取 [AppConstants.baseUrl] 的 host(例如 `linux.do`),用于判断主域。
-  /// 注意是 host 比对而不是 URL prefix 比对 —— 子域(`auth.linux.do` 等)
-  /// 也算主域,会走带 cookie 的 dio。
-  static final String _mainHost = Uri.parse(AppConstants.baseUrl).host;
-
   bool _isMainDomain(Uri url) {
     final host = url.host;
     if (host.isEmpty) return false;
-    // 主域精确匹配 或 是主域的子域(*.linux.do)
-    return host == _mainHost || host.endsWith('.$_mainHost');
+    // 主域精确匹配 或 是主域的子域
+    return AppConstants.isSiteHost(host);
   }
 
   dio.Dio _selectDio(Uri url) => _isMainDomain(url) ? _mainDomainDio : _cdnDio;

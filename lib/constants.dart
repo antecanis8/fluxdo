@@ -4,14 +4,20 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:ua_client_hints/ua_client_hints.dart';
+import 'config/site_config.dart';
 import 'config/site_customization.dart';
-import 'config/sites/linuxdo.dart';
+import 'config/sites/bbzlbink.dart';
 import 'services/windows_webview_environment_service.dart';
 
 /// 应用常量
 class AppConstants {
+  static const String baseUrl = 'https://bb.zlb.ink';
+  static const String primaryHost = 'bb.zlb.ink';
+  static const SiteConfig site = bbzlbInkSite;
+
   /// 当前站点自定义配置
-  static final SiteCustomization siteCustomization = linuxdoCustomization;
+  static SiteCustomization get siteCustomization => site.siteCustomization;
+  static SiteFeatures get features => site.features;
 
   /// 是否启用 WebView Cookie 同步（启动时预热 WebView）
   /// 设为 false 时，不使用 WebView 同步，Cookie 由 Dio Set-Cookie 与本地存储维护
@@ -297,8 +303,11 @@ class AppConstants {
         '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
   }
 
-  /// linux.do 域名
-  static const String baseUrl = 'https://linux.do';
+  static List<String> get allowedHosts => site.allowedHosts;
+
+  static bool isSiteHost(String host, {bool includeSubdomains = true}) {
+    return site.matchesHost(host, includeSubdomains: includeSubdomains);
+  }
 
   /// 请求首页时是否跳过 X-CSRF-Token（用于预热）
   static const bool skipCsrfForHomeRequest = true;

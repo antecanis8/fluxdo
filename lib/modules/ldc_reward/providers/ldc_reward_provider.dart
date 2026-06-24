@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../constants.dart';
 import '../../../l10n/s.dart';
 import '../models/reward_request.dart';
 import '../models/reward_result.dart';
@@ -29,10 +30,12 @@ class LdcRewardCredentialsNotifier extends AsyncNotifier<LdcRewardCredentials?> 
 
   @override
   Future<LdcRewardCredentials?> build() async {
+    if (!AppConstants.features.enableReward) return null;
     return _load();
   }
 
   Future<LdcRewardCredentials?> _load() async {
+    if (!AppConstants.features.enableReward) return null;
     final prefs = await SharedPreferences.getInstance();
     final clientId = prefs.getString(_clientIdKey);
     final clientSecret = prefs.getString(_clientSecretKey);
@@ -44,6 +47,7 @@ class LdcRewardCredentialsNotifier extends AsyncNotifier<LdcRewardCredentials?> 
 
   /// 保存凭证
   Future<void> save(String clientId, String clientSecret) async {
+    if (!AppConstants.features.enableReward) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_clientIdKey, clientId);
     await prefs.setString(_clientSecretKey, clientSecret);
@@ -105,6 +109,12 @@ Future<LdcRewardResult> executeReward({
   required int postId,
   String? remark,
 }) async {
+  if (!AppConstants.features.enableReward) {
+    return const LdcRewardResult(
+      success: false,
+      errorMsg: 'Reward is disabled for this site.',
+    );
+  }
   // 防重复检查
   final remaining = _RewardCooldown.check(topicId, postId, userId);
   if (remaining != null) {
